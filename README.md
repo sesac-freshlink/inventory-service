@@ -118,6 +118,6 @@ export DB_PASSWORD=<local-dev의 inventory_app 비밀번호>
 
 - `main`(배포) ← `dev`(통합, 기본 브랜치) ← `feat/<기능ID>-<설명>` (예: `feat/S-32-disposal`)
 - 커밋·PR 제목: `feat(S-32): 폐기 API 추가`
-- 쪽지 형식이 바뀌는 PR은 `message-spec` 라벨을 달고 김경우에게도 리뷰를 받는다.
+- 쪽지 형식이 바뀌는 PR은 `message-spec` 라벨을 달고 합치기 전에 김경우에게 꼭 알린다.
 
 자세한 규칙은 [.github 레포](https://github.com/sesac-freshlink/.github)를 참고한다.
