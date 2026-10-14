@@ -98,19 +98,21 @@ inventory-service/
 └── src/test/java/com/freshlink/inventory/
 ```
 
-## 8. 로컬에서 실행하기
+## 8. dev 환경에서 실행하기
 
 > 아직 뼈대만 있는 상태다. 첫 작업으로 [Spring Initializr](https://start.spring.io)에서 Gradle·Java 21·Web·JPA·MySQL Driver로 프로젝트를 만들고, Spring Cloud AWS SQS와 `com.freshlink:common` 의존성을 추가한다.
 
-1. [local-dev](https://github.com/sesac-freshlink/local-dev)에서 `docker compose up -d` (MySQL + LocalStack SQS)
-2. 이 레포에서
+개발할 때도 AWS dev 환경의 RDS·SQS·Cognito를 그대로 쓴다. AWS 로그인, DB 포트 포워딩(SSM), 개인 큐 설정은 [개발 환경 접속 가이드](https://github.com/sesac-freshlink/.github/blob/main/docs/개발환경-접속.md)를 따른다.
 
 ```bash
-export DB_PASSWORD=<local-dev의 inventory_app 비밀번호>
-./gradlew bootRun --args='--spring.profiles.active=local'
+export SPRING_PROFILES_ACTIVE=dev
+export DB_URL=jdbc:mysql://127.0.0.1:3306/inventory   # SSM 포트 포워딩으로 연결한 dev RDS
+export DB_PASSWORD=<dev Secrets Manager의 inventory_app 비밀번호>
+export QUEUE_PREFIX=dev-<내 이름>-                     # 개인 큐
+./gradlew bootRun
 ```
 
-3. logistics-simulator로 입고 쪽지를 보내고 `GET /owner/inventory/ledger`에서 '입고'가 찍히는지 확인한다.
+logistics-simulator로 입고 쪽지를 보내고 `GET /owner/inventory/ledger`에서 '입고'가 찍히는지 확인한다.
 
 ## 9. 브랜치와 기여
 
