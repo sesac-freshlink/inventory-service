@@ -1,12 +1,12 @@
 # inventory-service
 
-> FreshLink의 **재고 심장부**. 상품과 유통기한별 재고(lot)를 관리하고, 입고·예약·확정·해제·폐기를 처리하며, 점주 화면에 재고 변화를 실시간으로 밀어 준다.
+> FreshLink의 **재고 심장부**. 상품과 유통기한별 재고(lot)를 관리하고, 입고·예약·확정·해제·폐기를 처리하며, 점주 화면이 3초마다 조회하는 재고 API를 제공한다.
 
 | 항목 | 내용 |
 | --- | --- |
 | 담당 | 이태우 |
 | 관련 기능 ID | S-10, S-11, S-13, S-15, S-20, S-30, S-31, S-32, U-10, E-01, E-09 |
-| 기술 | Java 21, Spring Boot 3, Spring Data JPA, Spring Cloud AWS (SQS), SSE, ShedLock, MySQL |
+| 기술 | Java 21, Spring Boot 3, Spring Data JPA, Spring Cloud AWS (SQS), ShedLock, MySQL |
 | 관측성 | Actuator·Micrometer → Prometheus (`/actuator/prometheus`, 관리 포트 8081) · Micrometer Tracing → Zipkin · JSON 로그(traceId 포함) → Alloy → Loki ([gitops/platform/observability](https://github.com/sesac-freshlink/gitops/tree/main/platform/observability)) |
 | DB | RDS `freshlink-mysql`의 `inventory` 스키마 (DB 사용자 `inventory_app`) |
 | 배포 | GitHub Actions → ECR `freshlink/inventory-service` → ArgoCD → EKS (파드 2개) |
@@ -34,7 +34,7 @@ flowchart LR
     Q1 --> INV["inventory-service"]
     INV -- "RESERVED · RESERVE_FAILED" --> Q2[["inventory-results"]]
     Q2 --> ORD
-    INV -. "SSE 재고 변경" .-> OW["점주 화면"]
+    OW["점주 화면"] -. "3초마다 재고 조회" .-> INV
 ```
 
 ## 3. 먼저 알아둘 용어
@@ -56,7 +56,7 @@ flowchart LR
 | S-10 | 재고 목록 | `GET /owner/inventory` | 상품별 총 수량·예약 수량·구매 가능 수량 |
 | S-11 | lot별 재고 | `GET /owner/inventory/{productId}/lots` | 유통기한별 수량 |
 | S-13 | 변동 이력 | `GET /owner/inventory/ledger` | 이력 합계가 현재 재고와 같다 |
-| S-15 | 실시간 반영 | `GET /owner/inventory/stream` (SSE) | 결제·입고·폐기 후 새로고침 없이 갱신 |
+| S-15 | 실시간 반영 | `GET /owner/inventory` (점주 화면이 3초마다 조회) | 결제·입고·폐기 후 3초 안에 새로고침 없이 갱신 |
 | S-20 | 입고 처리 | INBOUND 쪽지 | 같은 shipmentId는 두 번 반영되지 않는다 |
 | S-30 | 임박 목록 | `GET /owner/inventory/expiring` | 24시간 이내·경과 lot 구분 |
 | S-31 | 기한 경과 판매 차단 | 내부 로직 | 경과 lot은 구매 가능 수량·예약에서 제외 |
@@ -81,7 +81,6 @@ flowchart LR
 ## 6. 운영에서 챙길 것
 
 - **스케줄러 중복 실행:** 파드가 2개라 ShedLock으로 한 파드만 돌게 한다.
-- **SSE heartbeat:** CloudFront(30초)·ALB(60초) 유휴 타임아웃보다 짧게 15초마다 빈 신호를 보낸다.
 
 ## 7. 폴더 구조
 
@@ -93,7 +92,6 @@ inventory-service/
 │   ├── inventory/    # lot, 예약, 원장, 재고 조회
 │   ├── inbound/      # INBOUND 처리
 │   ├── disposal/     # 폐기
-│   ├── stream/       # SSE 연결 관리
 │   ├── messaging/    # 큐 리스너, 결과 쪽지 발행
 │   └── scheduler/    # 유통기한 스케줄러
 ├── src/main/resources/application.yml
