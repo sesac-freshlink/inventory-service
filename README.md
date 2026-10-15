@@ -6,7 +6,7 @@
 | --- | --- |
 | 담당 | 이태우 |
 | 관련 기능 ID | S-10, S-11, S-13, S-15, S-20, S-30, S-31, S-32, U-10, E-01, E-09 |
-| 기술 | Java 21, Spring Boot 3, Spring Data JPA, Spring Cloud AWS (SQS), ShedLock, MySQL |
+| 기술 | Java 21, Spring Boot 4.0.x, Spring Data JPA, Spring Cloud AWS 4.x (SQS), ShedLock, MySQL |
 | 관측성 | Actuator·Micrometer → Prometheus (앱 포트의 `/actuator/prometheus`, 관리 포트를 따로 두지 않는다. 모든 서비스가 8080) · Micrometer Tracing → Zipkin · JSON 로그(traceId 포함) → Alloy → Loki ([gitops/platform/observability](https://github.com/sesac-freshlink/gitops/tree/main/platform/observability)) |
 | DB | RDS `freshlink-mysql`의 `inventory` 스키마 (DB 사용자 `inventory_app`) |
 | 배포 | GitHub Actions → ECR `freshlink/inventory-service` → ArgoCD → EKS (파드 2개) |
