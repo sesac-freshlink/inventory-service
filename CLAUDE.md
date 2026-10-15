@@ -50,6 +50,7 @@
 ✅ 구매 가능 수량 = 유통기한이 지나지 않은 lot의 (수량 − 예약 수량) 합. 경과 lot은 예약에서 제외 (S-31)
 ✅ 점주 API는 점포 ID를 경로로 받지 않고 X-Store-Id를 쓴다. lot의 store_id와 비교해 다르면 403
 ✅ 스케줄러는 ShedLock (파드 2개)
+✅ 테이블 변경은 Flyway 마이그레이션 파일(src/main/resources/db/migration/V<n>__<설명>.sql)로만. spring.jpa.hibernate.ddl-auto 쓰지 않는다. 적용된 파일은 고치지 않고 새 버전을 추가한다
 ✅ S-15 실시간 반영: 프론트가 GET /owner/inventory를 3초마다 조회한다. 응답에 구매 가능 수량을 담는다
 ⛔ 쪽지 형식을 바꾸면 PR에 message-spec 라벨, 합치기 전 김경우에게 알린다
 ```
