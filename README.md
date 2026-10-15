@@ -113,7 +113,7 @@ inventory-service/
 
 > Spring 뼈대(의존성·`InventoryServiceApplication`·뜨는지 테스트)까지 들어 있다. 엔티티·API는 없다. Spring Cloud AWS SQS와 `com.freshlink:common` 의존성은 기능 작업 때 추가한다.
 >
-> **DB 없이 IntelliJ에서 띄우기:** Docker Desktop을 켜고 `src/test/.../TestInventoryServiceApplication`을 Run 하면 Testcontainers가 MySQL 8.4 컨테이너를 띄워 연결한다. 환경 변수가 필요 없고, 끄면 컨테이너도 사라진다. 아래는 dev RDS에 붙일 때다.
+> **DB 없이 IntelliJ에서 띄우기:** Docker Desktop을 켜고 `src/test/java/com/freshlink/inventory/TestInventoryServiceApplication`을 Run 한다. DB를 따로 띄우지 않아도 MySQL 8.4 이미지를 받아 컨테이너로 띄우고 자동으로 붙는다 (Testcontainers 라이브러리 기능). main 소스 변경사항이 그대로 반영된다. RDS가 준비되면 아래처럼 `DB_URL` 환경 변수만 주고 `InventoryServiceApplication`으로 실행한다.
 
 개발할 때도 AWS dev 환경의 RDS·SQS·Cognito를 그대로 쓴다. AWS 로그인, DB 포트 포워딩(SSM), 개인 큐 설정은 [개발 환경 접속 가이드](https://github.com/sesac-freshlink/.github/blob/main/docs/개발환경-접속.md)를 따른다.
 
