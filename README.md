@@ -6,7 +6,7 @@
 | --- | --- |
 | 담당 | 이태우 |
 | 관련 기능 ID | S-10, S-11, S-13, S-15, S-20, S-30, S-31, S-32, U-10, E-01, E-09 |
-| 기술 | Java 21, Spring Boot 4.0.x, Spring Data JPA, Spring Cloud AWS 4.x (SQS), ShedLock, MySQL |
+| 기술 | Java 21, Spring Boot 4.0.x, Spring Data JPA, Flyway(테이블 마이그레이션), Spring Cloud AWS 4.x (SQS), ShedLock, MySQL |
 | 관측성 | Actuator·Micrometer → Prometheus (앱 포트의 `/actuator/prometheus`, 관리 포트를 따로 두지 않는다. 모든 서비스가 8080) · Micrometer Tracing → Zipkin · JSON 로그(traceId 포함) → Alloy → Loki ([gitops/platform/observability](https://github.com/sesac-freshlink/gitops/tree/main/platform/observability)) |
 | DB | RDS `freshlink-mysql`의 `inventory` 스키마 (DB 사용자 `inventory_app`) |
 | 배포 | GitHub Actions → ECR `freshlink/inventory-service` → ArgoCD → EKS (파드 2개) |
@@ -78,6 +78,8 @@ flowchart LR
 | `inbound` | id, shipment_id(유니크), store_id, received_at |
 | `outbox`, `processed_message` | common 모듈이 쓰는 표 |
 
+테이블은 **Flyway 마이그레이션**으로 만든다. `src/main/resources/db/migration/V1__init.sql`부터 순서대로 두고, 앱이 뜰 때 Flyway가 아직 안 적용된 파일을 순서대로 실행한다. JPA `ddl-auto`로 테이블을 만들지 않는다. 한 번 적용된 파일은 고치지 않고 `V2__...`처럼 새 파일을 추가한다.
+
 ## 6. 운영에서 챙길 것
 
 - **스케줄러 중복 실행:** 파드가 2개라 ShedLock으로 한 파드만 돌게 한다.
@@ -86,7 +88,9 @@ flowchart LR
 
 ```
 inventory-service/
+├── build.gradle                       # Boot 4.0.8, Web·JPA·Validation·Actuator·Flyway·MySQL·Testcontainers
 ├── src/main/java/com/freshlink/inventory/
+│   ├── InventoryServiceApplication.java
 │   ├── config/       # SQS, ShedLock, Swagger 설정
 │   ├── product/      # 상품, 고객용 점포 상품 목록
 │   ├── inventory/    # lot, 예약, 원장, 재고 조회
@@ -94,13 +98,22 @@ inventory-service/
 │   ├── disposal/     # 폐기
 │   ├── messaging/    # 큐 리스너, 결과 쪽지 발행
 │   └── scheduler/    # 유통기한 스케줄러
-├── src/main/resources/application.yml
+├── src/main/resources/
+│   ├── application.yml                # 공통. 값은 환경 변수
+│   ├── application-dev.yml            # 로그 레벨만 다름
+│   ├── application-prod.yml
+│   └── db/migration/                  # Flyway SQL. V1__init.sql 부터
 └── src/test/java/com/freshlink/inventory/
+    ├── InventoryServiceApplicationTests.java   # 애플리케이션이 뜨는지 (Testcontainers MySQL)
+    ├── TestcontainersConfiguration.java        # 테스트·로컬 실행용 MySQL 8.4 컨테이너
+    └── TestInventoryServiceApplication.java    # IntelliJ에서 DB 없이 실행할 때 이걸 Run
 ```
 
 ## 8. dev 환경에서 실행하기
 
-> 아직 뼈대만 있는 상태다. 첫 작업으로 [Spring Initializr](https://start.spring.io)에서 Gradle·Java 21·Web·JPA·MySQL Driver로 프로젝트를 만들고, Spring Cloud AWS SQS와 `com.freshlink:common` 의존성을 추가한다.
+> Spring 뼈대(의존성·`InventoryServiceApplication`·뜨는지 테스트)까지 들어 있다. 엔티티·API는 없다. Spring Cloud AWS SQS와 `com.freshlink:common` 의존성은 기능 작업 때 추가한다.
+>
+> **DB 없이 IntelliJ에서 띄우기:** Docker Desktop을 켜고 `src/test/.../TestInventoryServiceApplication`을 Run 하면 Testcontainers가 MySQL 8.4 컨테이너를 띄워 연결한다. 환경 변수가 필요 없고, 끄면 컨테이너도 사라진다. 아래는 dev RDS에 붙일 때다.
 
 개발할 때도 AWS dev 환경의 RDS·SQS·Cognito를 그대로 쓴다. AWS 로그인, DB 포트 포워딩(SSM), 개인 큐 설정은 [개발 환경 접속 가이드](https://github.com/sesac-freshlink/.github/blob/main/docs/개발환경-접속.md)를 따른다.
 
