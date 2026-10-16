@@ -88,16 +88,19 @@ flowchart LR
 
 ```
 inventory-service/
-├── build.gradle                       # Boot 4.0.8, Web·JPA·Validation·Actuator·Flyway·MySQL·Testcontainers
+├── build.gradle                       # Boot 4.0.8, Web·JPA·Validation·Actuator·Flyway·MySQL·Testcontainers + common
 ├── src/main/java/com/freshlink/inventory/
 │   ├── InventoryServiceApplication.java
-│   ├── config/       # SQS, ShedLock, Swagger 설정
-│   ├── product/      # 상품, 고객용 점포 상품 목록
-│   ├── inventory/    # lot, 예약, 원장, 재고 조회
-│   ├── inbound/      # INBOUND 처리
-│   ├── disposal/     # 폐기
-│   ├── messaging/    # 큐 리스너, 결과 쪽지 발행
-│   └── scheduler/    # 유통기한 스케줄러
+│   ├── common/                        # 도메인과 상관없는 공통 코드
+│   │   ├── config/       # SQS, ShedLock, Swagger 설정
+│   │   ├── error/        # InventoryErrorCode(enum), GlobalExceptionHandler
+│   │   └── messaging/    # 큐 리스너, 결과 쪽지 발행
+│   └── domain/                        # 도메인별 엔티티·서비스·API
+│       ├── product/      # 상품, 고객용 점포 상품 목록
+│       ├── inventory/    # lot, 예약, 원장, 재고 조회
+│       ├── inbound/      # INBOUND 처리
+│       ├── disposal/     # 폐기
+│       └── scheduler/    # 유통기한 스케줄러
 ├── src/main/resources/
 │   ├── application.yml                # 공통. 값은 환경 변수
 │   ├── application-dev.yml            # 로그 레벨만 다름
@@ -106,8 +109,19 @@ inventory-service/
 └── src/test/java/com/freshlink/inventory/
     ├── InventoryServiceApplicationTests.java   # 애플리케이션이 뜨는지 (Testcontainers MySQL)
     ├── TestcontainersConfiguration.java        # 테스트·로컬 실행용 MySQL 8.4 컨테이너
-    └── TestInventoryServiceApplication.java    # IntelliJ에서 DB 없이 실행할 때 이걸 Run
+    ├── TestInventoryServiceApplication.java    # IntelliJ에서 DB 없이 실행할 때 이걸 Run
+    └── common/error/GlobalExceptionHandlerTest.java   # 오류 응답 모양 (DB 없이)
 ```
+
+## 7-1. 오류 처리
+
+규칙은 .github 레포 `docs/백엔드-공통-규칙.md` 6장. 응답 모양은 common 라이브러리, 오류 목록과 핸들러는 이 레포에 있다.
+
+| 할 일 | 방법 |
+| --- | --- |
+| 업무 오류 던지기 | `throw new BusinessException(InventoryErrorCode.LOT_NOT_IN_STORE);` 한 줄 |
+| 오류 코드 추가 | `common/error/InventoryErrorCode`에 `XXX(404, "메시지")` 한 줄. 핸들러는 안 건드린다 |
+| 응답 모양 | 항상 `{"code": "LOT_NOT_IN_STORE", "message": "다른 점포의 lot입니다", "traceId": "4bf92f3577b34da6"}`. `@Valid` 실패는 400 `VALIDATION_ERROR`(message에 필드별 사유), 없는 경로는 404 `NOT_FOUND`, 그 밖은 500 `INTERNAL_ERROR`(원인은 로그에만) |
 
 ## 8. dev 환경에서 실행하기
 

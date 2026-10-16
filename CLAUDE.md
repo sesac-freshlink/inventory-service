@@ -53,6 +53,8 @@
 ✅ 테이블 변경은 Flyway 마이그레이션 파일(src/main/resources/db/migration/V<n>__<설명>.sql)로만. spring.jpa.hibernate.ddl-auto 쓰지 않는다. 적용된 파일은 고치지 않고 새 버전을 추가한다
 ✅ S-15 실시간 반영: 프론트가 GET /owner/inventory를 3초마다 조회한다. 응답에 구매 가능 수량을 담는다
 ⛔ 쪽지 형식을 바꾸면 PR에 message-spec 라벨, 합치기 전 김경우에게 알린다
+✅ 패키지: common/(config·error·log·messaging)은 도메인과 상관없는 공통 코드, domain/<도메인>은 엔티티·서비스·API
+✅ 오류: throw new BusinessException(InventoryErrorCode.XXX). 코드 추가는 common/error/InventoryErrorCode enum에 한 줄. 응답은 항상 code·message·traceId (common/error/GlobalExceptionHandler는 안 건드린다)
 ```
 
 ## 검증
