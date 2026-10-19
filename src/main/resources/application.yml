@@ -3,6 +3,17 @@
 server:
   port: 8080
 
+app:
+  queue:
+    commands: ${QUEUE_PREFIX:dev-}inventory-commands.fifo
+    results: ${QUEUE_PREFIX:dev-}inventory-results
+  expiry:
+    cron: ${EXPIRY_CRON:0 0 0 * * *}
+
+freshlink:
+  messaging:
+    enabled: true
+
 spring:
   application:
     name: inventory-service
@@ -20,6 +31,10 @@ spring:
           time_zone: Asia/Seoul
   jackson:
     time-zone: Asia/Seoul         # 시각은 ISO-8601 +09:00
+  cloud:
+    aws:
+      region:
+        static: ${AWS_REGION:ap-northeast-2}
 
 management:
   endpoints:
