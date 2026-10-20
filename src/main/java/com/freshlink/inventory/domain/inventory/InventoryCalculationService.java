@@ -16,8 +16,10 @@ public class InventoryCalculationService {
     }
 
     public int calculateAvailableQuantity(List<InventoryLot> lots) {
-        LocalDateTime now = LocalDateTime.now(clock);
+        return calculateAvailableQuantity(lots, LocalDateTime.now(clock));
+    }
 
+    int calculateAvailableQuantity(List<InventoryLot> lots, LocalDateTime now) {
         return lots.stream()
                 .filter(lot -> lot.getExpiryDate().isAfter(now))
                 .mapToInt(lot -> lot.getQuantity() - lot.getReservedQuantity())
@@ -25,7 +27,10 @@ public class InventoryCalculationService {
     }
 
     public InventoryLotStatus calculateStatus(InventoryLot lot) {
-        LocalDateTime now = LocalDateTime.now(clock);
+        return calculateStatus(lot, LocalDateTime.now(clock));
+    }
+
+    InventoryLotStatus calculateStatus(InventoryLot lot, LocalDateTime now) {
         LocalDateTime expiryDate = lot.getExpiryDate();
 
         if (!expiryDate.isAfter(now)) {
