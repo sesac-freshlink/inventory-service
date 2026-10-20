@@ -81,6 +81,7 @@ class InventoryControllerTest {
                                 .header("X-Store-Id", "1")
                 )
                 .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$[0].lotId").value(301))
                 .andExpect(jsonPath("$[0].availableQuantity").value(19))
                 .andExpect(jsonPath("$[0].status").value("NORMAL"));

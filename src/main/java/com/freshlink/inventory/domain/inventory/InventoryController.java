@@ -32,10 +32,12 @@ public class InventoryController {
     }
 
     @GetMapping("/{productId}/lots")
-    public List<InventoryLotResponse> getLots(
+    public ResponseEntity<List<InventoryLotResponse>> getLots(
             @RequestHeader(STORE_ID_HEADER) Long storeId,
             @PathVariable Long productId
     ) {
-        return inventoryQueryService.getLots(storeId, productId);
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(inventoryQueryService.getLots(storeId, productId));
     }
 }
