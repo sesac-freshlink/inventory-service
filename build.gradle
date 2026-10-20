@@ -39,6 +39,7 @@ dependencies {
     runtimeOnly 'com.mysql:mysql-connector-j'
     implementation platform('io.awspring.cloud:spring-cloud-aws-dependencies:4.2.0')
     implementation 'io.awspring.cloud:spring-cloud-aws-starter-sqs'
+    runtimeOnly 'software.amazon.awssdk:sts'
 
     implementation 'net.javacrumbs.shedlock:shedlock-spring:7.10.1'
     implementation 'net.javacrumbs.shedlock:shedlock-provider-jdbc-template:7.10.1'
