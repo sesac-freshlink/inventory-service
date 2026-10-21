@@ -14,12 +14,16 @@ import com.freshlink.inventory.domain.inbound.InboundRepository;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class InventoryCommandService {
 
+    private static final Logger log =
+            LoggerFactory.getLogger(InventoryCommandService.class);
     private final ProcessedMessages processedMessages;
     private final InboundRepository inboundRepository;
     private final ProductRepository productRepository;
@@ -80,13 +84,24 @@ public class InventoryCommandService {
             InboundItem item
     ) {
         if (item.quantity() <= 0) {
+            log.warn(
+                    "INBOUND 수량 검증 실패: shipmentId={}, productCode={}, quantity={}",
+                    message.shipmentId(),
+                    item.productCode(),
+                    item.quantity()
+            );
             throw new BusinessException(InventoryErrorCode.INVALID_QUANTITY);
         }
 
         Product product = productRepository.findByProductCode(item.productCode())
-                .orElseThrow(() ->
-                        new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND)
-                );
+                .orElseThrow(() -> {
+                    log.warn(
+                            "INBOUND 상품 조회 실패: shipmentId={}, productCode={}",
+                            message.shipmentId(),
+                            item.productCode()
+                    );
+                    return new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND);
+                });
 
         LocalDateTime expiryDate = item.expiryDate()
                 .atZoneSameInstant(clock.getZone())
