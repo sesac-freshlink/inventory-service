@@ -47,6 +47,21 @@ public class Ledger {
     protected Ledger() {
     }
 
+    public static Ledger inbound(
+            Long storeId,
+            Long lotId,
+            int quantity,
+            String shipmentId
+    ) {
+        Ledger ledger = new Ledger();
+        ledger.storeId = storeId;
+        ledger.lotId = lotId;
+        ledger.type = LedgerType.INBOUND;
+        ledger.quantity = quantity;
+        ledger.refId = shipmentId;
+        return ledger;
+    }
+
     public Long getId() {
         return id;
     }
