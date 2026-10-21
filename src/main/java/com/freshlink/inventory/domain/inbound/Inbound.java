@@ -29,6 +29,18 @@ public class Inbound {
     protected Inbound() {
     }
 
+    public static Inbound create(
+            String shipmentId,
+            Long storeId,
+            LocalDateTime receivedAt
+    ) {
+        Inbound inbound = new Inbound();
+        inbound.shipmentId = shipmentId;
+        inbound.storeId = storeId;
+        inbound.receivedAt = receivedAt;
+        return inbound;
+    }
+
     public Long getId() {
         return id;
     }

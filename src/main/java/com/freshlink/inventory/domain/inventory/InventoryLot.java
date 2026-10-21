@@ -64,6 +64,26 @@ public class InventoryLot {
     protected InventoryLot() {
     }
 
+    public static InventoryLot create(
+            Long storeId,
+            Long productId,
+            LocalDateTime expiryDate,
+            int quantity
+    ) {
+        InventoryLot lot = new InventoryLot();
+        lot.storeId = storeId;
+        lot.productId = productId;
+        lot.expiryDate = expiryDate;
+        lot.quantity = quantity;
+        lot.reservedQuantity = 0;
+        lot.status = InventoryLotStatus.NORMAL;
+        return lot;
+    }
+
+    public void addQuantity(int quantity) {
+        this.quantity += quantity;
+    }
+
     public Long getId() {
         return id;
     }
