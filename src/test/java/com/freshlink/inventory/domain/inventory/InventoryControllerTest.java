@@ -2,6 +2,7 @@ package com.freshlink.inventory.domain.inventory;
 
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.time.LocalDate;
 
 import com.freshlink.common.error.BusinessException;
 import com.freshlink.inventory.common.error.GlobalExceptionHandler;
@@ -29,6 +30,9 @@ class InventoryControllerTest {
 
     @MockitoBean
     InventoryQueryService inventoryQueryService;
+
+    @MockitoBean
+    LedgerQueryService ledgerQueryService;
 
     @Test
     void 재고_목록은_200과_no_store로_응답한다() throws Exception {
@@ -107,5 +111,97 @@ class InventoryControllerTest {
                 )
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PRODUCT_NOT_FOUND"));
+    }
+
+    @Test
+    void 원장_목록은_필터를_받아_200으로_응답한다() throws Exception {
+        List<LedgerResponse> responses = List.of(
+                new LedgerResponse(
+                        9003L,
+                        LedgerType.DISPOSE,
+                        15L,
+                        "매운 컵라면 115g",
+                        301L,
+                        OffsetDateTime.parse("2026-10-30T23:59:59+09:00"),
+                        -3,
+                        "DSP-001",
+                        OffsetDateTime.parse("2026-10-22T10:02:00+09:00")
+                ),
+                new LedgerResponse(
+                        9002L,
+                        LedgerType.SALE,
+                        15L,
+                        "매운 컵라면 115g",
+                        301L,
+                        OffsetDateTime.parse("2026-10-30T23:59:59+09:00"),
+                        -1,
+                        "ORD-001",
+                        OffsetDateTime.parse("2026-10-22T10:01:00+09:00")
+                ),
+                new LedgerResponse(
+                        9001L,
+                        LedgerType.INBOUND,
+                        15L,
+                        "매운 컵라면 115g",
+                        301L,
+                        OffsetDateTime.parse("2026-10-30T23:59:59+09:00"),
+                        10,
+                        "SHP-001",
+                        OffsetDateTime.parse("2026-10-22T10:00:00+09:00")
+                )
+        );
+
+        when(ledgerQueryService.getLedger(
+                1L,
+                15L,
+                null,
+                LocalDate.of(2026, 10, 22),
+                LocalDate.of(2026, 10, 22)
+        )).thenReturn(responses);
+
+        mockMvc.perform(
+                        get("/owner/inventory/ledger")
+                                .header("X-Store-Id", "1")
+                                .param("productId", "15")
+                                .param("from", "2026-10-22")
+                                .param("to", "2026-10-22")
+                )
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$[0].type").value("DISPOSE"))
+                .andExpect(jsonPath("$[0].quantity").value(-3))
+                .andExpect(jsonPath("$[1].type").value("SALE"))
+                .andExpect(jsonPath("$[1].quantity").value(-1))
+                .andExpect(jsonPath("$[2].type").value("INBOUND"))
+                .andExpect(jsonPath("$[2].quantity").value(10))
+                .andExpect(jsonPath("$[2].productName")
+                        .value("매운 컵라면 115g"))
+                .andExpect(jsonPath("$[2].expiryDate")
+                        .value("2026-10-30T23:59:59+09:00"));
+    }
+
+    @Test
+    void 원장_조회에서_시작일이_종료일보다_늦으면_400이다()
+            throws Exception {
+
+        when(ledgerQueryService.getLedger(
+                1L,
+                null,
+                null,
+                LocalDate.of(2026, 10, 23),
+                LocalDate.of(2026, 10, 22)
+        )).thenThrow(new BusinessException(
+                InventoryErrorCode.INVALID_DATE_RANGE
+        ));
+
+        mockMvc.perform(
+                        get("/owner/inventory/ledger")
+                                .header("X-Store-Id", "1")
+                                .param("from", "2026-10-23")
+                                .param("to", "2026-10-22")
+                )
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code")
+                        .value("INVALID_DATE_RANGE"));
     }
 }
