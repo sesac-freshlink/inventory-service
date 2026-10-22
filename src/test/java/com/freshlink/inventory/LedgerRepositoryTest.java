@@ -12,9 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
-import java.util.Calendar;
 import java.util.List;
-import java.util.TimeZone;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -458,13 +456,7 @@ class LedgerRepositoryTest {
                     ps.setString(3, type);
                     ps.setInt(4, quantity);
                     ps.setString(5, refId);
-                    ps.setTimestamp(
-                            6,
-                            Timestamp.valueOf(createdAt),
-                            Calendar.getInstance(
-                                    TimeZone.getTimeZone("Asia/Seoul")
-                            )
-                    );
+                    ps.setObject(6, createdAt);
                 }
         );
     }
