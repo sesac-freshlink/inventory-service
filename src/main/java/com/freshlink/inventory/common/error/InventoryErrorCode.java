@@ -16,7 +16,8 @@ public enum InventoryErrorCode implements ErrorCode {
     DISPOSAL_NOT_FOUND(404, "폐기 요청이 없습니다"),
     STORE_NOT_LINKED(403, "연결된 점포가 없습니다"),
     NOT_DISPOSABLE(409, "폐기할 수 없는 상태입니다"),
-    SERVICE_UNAVAILABLE(503, "잠시 후 다시 시도해 주세요");
+    SERVICE_UNAVAILABLE(503, "잠시 후 다시 시도해 주세요"),
+    INVALID_DATE_RANGE(400, "조회 시작일은 종료일보다 늦을 수 없습니다");
 
     private final int status;
     private final String message;
