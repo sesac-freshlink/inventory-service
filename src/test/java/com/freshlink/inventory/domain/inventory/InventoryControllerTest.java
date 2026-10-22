@@ -204,4 +204,52 @@ class InventoryControllerTest {
                 .andExpect(jsonPath("$.code")
                         .value("INVALID_DATE_RANGE"));
     }
+
+    @Test
+    void 임박_목록은_200과_no_store로_응답한다() throws Exception {
+        List<ExpiringInventoryResponse> responses = List.of(
+                new ExpiringInventoryResponse(
+                        301L,
+                        15L,
+                        "매운 컵라면 115g",
+                        OffsetDateTime.parse("2026-10-20T14:00:00+09:00"),
+                        true,
+                        10,
+                        2,
+                        8
+                ),
+                new ExpiringInventoryResponse(
+                        302L,
+                        15L,
+                        "매운 컵라면 115g",
+                        OffsetDateTime.parse("2026-10-20T16:00:00+09:00"),
+                        false,
+                        8,
+                        3,
+                        5
+                )
+        );
+
+        when(inventoryQueryService.getExpiring(1L))
+                .thenReturn(responses);
+
+        mockMvc.perform(
+                        get("/owner/inventory/expiring")
+                                .header("X-Store-Id", "1")
+                )
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$[0].lotId").value(301))
+                .andExpect(jsonPath("$[0].productId").value(15))
+                .andExpect(jsonPath("$[0].productName")
+                        .value("매운 컵라면 115g"))
+                .andExpect(jsonPath("$[0].expiryDate")
+                        .value("2026-10-20T14:00:00+09:00"))
+                .andExpect(jsonPath("$[0].expired").value(true))
+                .andExpect(jsonPath("$[0].quantity").value(10))
+                .andExpect(jsonPath("$[0].reservedQuantity").value(2))
+                .andExpect(jsonPath("$[0].disposableQuantity").value(8))
+                .andExpect(jsonPath("$[1].expired").value(false))
+                .andExpect(jsonPath("$[1].disposableQuantity").value(5));
+    }
 }
