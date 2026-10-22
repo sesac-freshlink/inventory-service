@@ -12,7 +12,9 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.Calendar;
 import java.util.List;
+import java.util.TimeZone;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -85,23 +87,13 @@ class LedgerRepositoryTest {
                 LocalDateTime.of(2026, 10, 22, 9, 0);
 
         for (int i = 0; i < 101; i++) {
-            jdbcTemplate.update("""
-                    INSERT INTO ledger (
-                        store_id,
-                        lot_id,
-                        type,
-                        quantity,
-                        ref_id,
-                        created_at
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
+            insertLedger(
                     971L,
                     lotId,
                     "INBOUND",
                     i + 1,
                     "REF-" + i,
-                    Timestamp.valueOf(base.plusSeconds(i))
+                    base.plusSeconds(i)
             );
         }
 
@@ -130,35 +122,35 @@ class LedgerRepositoryTest {
     @Test
     void 상품으로_원장을_필터링한다() {
         jdbcTemplate.update("""
-            INSERT INTO product (product_code, name, category, price)
-            VALUES (?, ?, ?, ?), (?, ?, ?, ?)
-            """,
+                INSERT INTO product (product_code, name, category, price)
+                VALUES (?, ?, ?, ?), (?, ?, ?, ?)
+                """,
                 "P972A", "상품 A", "테스트", 1000L,
                 "P972B", "상품 B", "테스트", 2000L
         );
 
         Long productAId = jdbcTemplate.queryForObject("""
-            SELECT id FROM product WHERE product_code = ?
-            """,
+                SELECT id FROM product WHERE product_code = ?
+                """,
                 Long.class,
                 "P972A"
         );
 
         Long productBId = jdbcTemplate.queryForObject("""
-            SELECT id FROM product WHERE product_code = ?
-            """,
+                SELECT id FROM product WHERE product_code = ?
+                """,
                 Long.class,
                 "P972B"
         );
 
         jdbcTemplate.update("""
-            INSERT INTO inventory_lot (
-                store_id, product_id, expiry_date,
-                quantity, reserved_quantity, status,
-                created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-            """,
+                INSERT INTO inventory_lot (
+                    store_id, product_id, expiry_date,
+                    quantity, reserved_quantity, status,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+                """,
                 972L,
                 productAId,
                 Timestamp.valueOf(
@@ -170,13 +162,13 @@ class LedgerRepositoryTest {
         );
 
         jdbcTemplate.update("""
-            INSERT INTO inventory_lot (
-                store_id, product_id, expiry_date,
-                quantity, reserved_quantity, status,
-                created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-            """,
+                INSERT INTO inventory_lot (
+                    store_id, product_id, expiry_date,
+                    quantity, reserved_quantity, status,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+                """,
                 972L,
                 productBId,
                 Timestamp.valueOf(
@@ -188,57 +180,41 @@ class LedgerRepositoryTest {
         );
 
         Long lotAId = jdbcTemplate.queryForObject("""
-            SELECT id
-            FROM inventory_lot
-            WHERE store_id = ? AND product_id = ?
-            """,
+                SELECT id
+                FROM inventory_lot
+                WHERE store_id = ? AND product_id = ?
+                """,
                 Long.class,
                 972L,
                 productAId
         );
 
         Long lotBId = jdbcTemplate.queryForObject("""
-            SELECT id
-            FROM inventory_lot
-            WHERE store_id = ? AND product_id = ?
-            """,
+                SELECT id
+                FROM inventory_lot
+                WHERE store_id = ? AND product_id = ?
+                """,
                 Long.class,
                 972L,
                 productBId
         );
 
-        jdbcTemplate.update("""
-            INSERT INTO ledger (
-                store_id, lot_id, type,
-                quantity, ref_id, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
+        insertLedger(
                 972L,
                 lotAId,
                 "INBOUND",
                 10,
                 "PRODUCT-A",
-                Timestamp.valueOf(
-                        LocalDateTime.of(2026, 10, 22, 10, 0)
-                )
+                LocalDateTime.of(2026, 10, 22, 10, 0)
         );
 
-        jdbcTemplate.update("""
-            INSERT INTO ledger (
-                store_id, lot_id, type,
-                quantity, ref_id, created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
+        insertLedger(
                 972L,
                 lotBId,
                 "INBOUND",
                 20,
                 "PRODUCT-B",
-                Timestamp.valueOf(
-                        LocalDateTime.of(2026, 10, 22, 10, 1)
-                )
+                LocalDateTime.of(2026, 10, 22, 10, 1)
         );
 
         List<Ledger> result = ledgerRepository.findLedger(
@@ -258,9 +234,9 @@ class LedgerRepositoryTest {
     @Test
     void 원장_유형으로_필터링한다() {
         jdbcTemplate.update("""
-            INSERT INTO product (product_code, name, category, price)
-            VALUES (?, ?, ?, ?)
-            """,
+                INSERT INTO product (product_code, name, category, price)
+                VALUES (?, ?, ?, ?)
+                """,
                 "P973",
                 "원장 유형 테스트 상품",
                 "테스트",
@@ -268,22 +244,22 @@ class LedgerRepositoryTest {
         );
 
         Long productId = jdbcTemplate.queryForObject("""
-            SELECT id
-            FROM product
-            WHERE product_code = ?
-            """,
+                SELECT id
+                FROM product
+                WHERE product_code = ?
+                """,
                 Long.class,
                 "P973"
         );
 
         jdbcTemplate.update("""
-            INSERT INTO inventory_lot (
-                store_id, product_id, expiry_date,
-                quantity, reserved_quantity, status,
-                created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-            """,
+                INSERT INTO inventory_lot (
+                    store_id, product_id, expiry_date,
+                    quantity, reserved_quantity, status,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+                """,
                 973L,
                 productId,
                 Timestamp.valueOf(
@@ -295,10 +271,10 @@ class LedgerRepositoryTest {
         );
 
         Long lotId = jdbcTemplate.queryForObject("""
-            SELECT id
-            FROM inventory_lot
-            WHERE store_id = ? AND product_id = ?
-            """,
+                SELECT id
+                FROM inventory_lot
+                WHERE store_id = ? AND product_id = ?
+                """,
                 Long.class,
                 973L,
                 productId
@@ -349,40 +325,12 @@ class LedgerRepositoryTest {
                 .isEqualTo("TYPE-SALE");
     }
 
-    private void insertLedger(
-            Long storeId,
-            Long lotId,
-            String type,
-            int quantity,
-            String refId,
-            LocalDateTime createdAt
-    ) {
-        jdbcTemplate.update("""
-                INSERT INTO ledger (
-                    store_id,
-                    lot_id,
-                    type,
-                    quantity,
-                    ref_id,
-                    created_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                storeId,
-                lotId,
-                type,
-                quantity,
-                refId,
-                Timestamp.valueOf(createdAt)
-        );
-    }
-
     @Test
     void 날짜_범위로_원장을_필터링한다() {
         jdbcTemplate.update("""
-            INSERT INTO product (product_code, name, category, price)
-            VALUES (?, ?, ?, ?)
-            """,
+                INSERT INTO product (product_code, name, category, price)
+                VALUES (?, ?, ?, ?)
+                """,
                 "P974",
                 "날짜 필터 테스트 상품",
                 "테스트",
@@ -390,22 +338,22 @@ class LedgerRepositoryTest {
         );
 
         Long productId = jdbcTemplate.queryForObject("""
-            SELECT id
-            FROM product
-            WHERE product_code = ?
-            """,
+                SELECT id
+                FROM product
+                WHERE product_code = ?
+                """,
                 Long.class,
                 "P974"
         );
 
         jdbcTemplate.update("""
-            INSERT INTO inventory_lot (
-                store_id, product_id, expiry_date,
-                quantity, reserved_quantity, status,
-                created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
-            """,
+                INSERT INTO inventory_lot (
+                    store_id, product_id, expiry_date,
+                    quantity, reserved_quantity, status,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, NOW(3), NOW(3))
+                """,
                 974L,
                 productId,
                 Timestamp.valueOf(
@@ -417,10 +365,10 @@ class LedgerRepositoryTest {
         );
 
         Long lotId = jdbcTemplate.queryForObject("""
-            SELECT id
-            FROM inventory_lot
-            WHERE store_id = ? AND product_id = ?
-            """,
+                SELECT id
+                FROM inventory_lot
+                WHERE store_id = ? AND product_id = ?
+                """,
                 Long.class,
                 974L,
                 productId
@@ -432,7 +380,10 @@ class LedgerRepositoryTest {
                 "INBOUND",
                 10,
                 "BEFORE",
-                LocalDateTime.of(2026, 10, 21, 23, 59, 59, 999_000_000)
+                LocalDateTime.of(
+                        2026, 10, 21,
+                        23, 59, 59, 999_000_000
+                )
         );
 
         insertLedger(
@@ -450,7 +401,10 @@ class LedgerRepositoryTest {
                 "DISPOSE",
                 -3,
                 "END",
-                LocalDateTime.of(2026, 10, 22, 23, 59, 59, 999_000_000)
+                LocalDateTime.of(
+                        2026, 10, 22,
+                        23, 59, 59, 999_000_000
+                )
         );
 
         insertLedger(
@@ -477,5 +431,41 @@ class LedgerRepositoryTest {
                         "END",
                         "START"
                 );
+    }
+
+    private void insertLedger(
+            Long storeId,
+            Long lotId,
+            String type,
+            int quantity,
+            String refId,
+            LocalDateTime createdAt
+    ) {
+        jdbcTemplate.update("""
+                INSERT INTO ledger (
+                    store_id,
+                    lot_id,
+                    type,
+                    quantity,
+                    ref_id,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                ps -> {
+                    ps.setLong(1, storeId);
+                    ps.setLong(2, lotId);
+                    ps.setString(3, type);
+                    ps.setInt(4, quantity);
+                    ps.setString(5, refId);
+                    ps.setTimestamp(
+                            6,
+                            Timestamp.valueOf(createdAt),
+                            Calendar.getInstance(
+                                    TimeZone.getTimeZone("Asia/Seoul")
+                            )
+                    );
+                }
+        );
     }
 }
