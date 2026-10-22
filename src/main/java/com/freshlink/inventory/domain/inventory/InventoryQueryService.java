@@ -13,6 +13,7 @@ import com.freshlink.common.error.BusinessException;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
+import com.freshlink.inventory.domain.product.StoreProductResponse;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -168,5 +169,116 @@ public class InventoryQueryService {
                 availableQuantity,
                 status
         );
+    }
+
+    public List<ExpiringInventoryResponse> getExpiring(Long storeId) {
+        LocalDateTime now = LocalDateTime.now(clock);
+
+        List<InventoryLot> lots = inventoryLotRepository.findByStoreId(storeId);
+
+        if (lots.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, Product> products = productRepository.findAllById(
+                        lots.stream()
+                                .map(InventoryLot::getProductId)
+                                .collect(Collectors.toSet())
+                )
+                .stream()
+                .collect(Collectors.toMap(Product::getId, Function.identity()));
+
+        return lots.stream()
+                .filter(lot -> lot.getQuantity() > 0)
+                .filter(lot -> {
+                    InventoryLotStatus status =
+                            calculationService.calculateStatus(lot, now);
+
+                    return status == InventoryLotStatus.IMMINENT
+                            || status == InventoryLotStatus.EXPIRED;
+                })
+                .sorted(
+                        java.util.Comparator
+                                .comparing(InventoryLot::getExpiryDate)
+                                .thenComparing(InventoryLot::getId)
+                )
+                .map(lot -> toExpiringResponse(
+                        lot,
+                        products.get(lot.getProductId()),
+                        now
+                ))
+                .toList();
+    }
+
+    private ExpiringInventoryResponse toExpiringResponse(
+            InventoryLot lot,
+            Product product,
+            LocalDateTime now
+    ) {
+        if (product == null) {
+            throw new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND);
+        }
+
+        InventoryLotStatus status =
+                calculationService.calculateStatus(lot, now);
+
+        return new ExpiringInventoryResponse(
+                lot.getId(),
+                lot.getProductId(),
+                product.getName(),
+                toOffsetDateTime(lot.getExpiryDate()),
+                status == InventoryLotStatus.EXPIRED,
+                lot.getQuantity(),
+                lot.getReservedQuantity(),
+                lot.getQuantity() - lot.getReservedQuantity()
+        );
+    }
+
+    public List<StoreProductResponse> getStoreProducts(Long storeId) {
+        LocalDateTime now = LocalDateTime.now(clock);
+
+        List<InventoryLot> lots =
+                inventoryLotRepository.findByStoreId(storeId);
+
+        if (lots.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, List<InventoryLot>> lotsByProduct =
+                lots.stream()
+                        .collect(Collectors.groupingBy(
+                                InventoryLot::getProductId
+                        ));
+
+        return productRepository.findAll()
+                .stream()
+                .map(product -> {
+                    List<InventoryLot> productLots =
+                            lotsByProduct.getOrDefault(
+                                    product.getId(),
+                                    List.of()
+                            );
+
+                    int availableQuantity =
+                            calculationService.calculateAvailableQuantity(
+                                    productLots,
+                                    now
+                            );
+
+                    return new StoreProductResponse(
+                            product.getId(),
+                            product.getName(),
+                            product.getCategory(),
+                            product.getPrice(),
+                            availableQuantity,
+                            availableQuantity == 0
+                    );
+                })
+                .sorted(
+                        java.util.Comparator
+                                .comparing(StoreProductResponse::name)
+                                .thenComparing(StoreProductResponse::productId)
+                )
+                .toList();
     }
 }

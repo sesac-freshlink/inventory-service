@@ -71,4 +71,13 @@ public class InventoryController {
                         to
                 ));
     }
+
+    @GetMapping("/expiring")
+    public ResponseEntity<List<ExpiringInventoryResponse>> getExpiring(
+            @RequestHeader(STORE_ID_HEADER) Long storeId
+    ) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(inventoryQueryService.getExpiring(storeId));
+    }
 }
