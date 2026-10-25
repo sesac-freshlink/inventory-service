@@ -170,7 +170,7 @@ logistics-simulator로 입고 쪽지를 보내고 `GET /owner/inventory/ledger`�
 | `QUEUE_PREFIX` | 큐 이름 앞부분. `app.queue.commands` = `<접두사>inventory-commands.fifo`, `app.queue.results` = `<접두사>inventory-results`. PC는 개인 큐(`dev-<이름>-`) | `dev-` |
 | `EXPIRY_CRON` | 유통기한 스케줄러 주기(`app.expiry.cron`, Spring cron 6자리, Asia/Seoul) | `0 0 0 * * *`(자정) |
 | `AWS_REGION` | SQS 리전 | `ap-northeast-2` |
-| `GITHUB_ACTOR`, `GITHUB_TOKEN` | **빌드 때만.** common 라이브러리를 GitHub Packages에서 받는다(`read:packages`) | 빌드 실패 |
+| `GITHUB_ACTOR`, `GITHUB_TOKEN` | **의존성을 받을 때.** 빌드와 `./gradlew bootRun`이 common 라이브러리를 GitHub Packages에서 받는다(`read:packages`). Gradle 캐시에 이미 있으면 실행 때는 쓰지 않는다 | 의존성 해석 실패(빌드·실행이 시작되지 않음) |
 
 PC에서 실행 구성을 만들 때는 위 값에 `AWS_PROFILE=freshlink-dev`를 더한다(접속 가이드 3장). 추적(Zipkin)과 JSON 로그는 클러스터에서 차트가 `MANAGEMENT_TRACING_EXPORT_ZIPKIN_*`, `LOGGING_STRUCTURED_FORMAT_CONSOLE`로 켠다.
 

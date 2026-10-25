@@ -74,32 +74,35 @@ SELECT id, product_code, name, price FROM product WHERE product_code IN ('P015',
 ```powershell
 $ship = "SHP-DEVCHK-" + (Get-Date -Format "yyyyMMddHHmmss")
 $exp = (Get-Date).AddMonths(2).ToString("yyyy-MM-dd")     # 실행일보다 뒤인 유통기한. 아래 SQL의 <$exp>에 이 값을 넣는다
-"exp = $exp, ship = $ship"
+# 주문 ID는 실행할 때마다 새로 만든다. 같은 ID로 다시 하면 "같은 주문 재수신"이 되고 이전 결과가 섞인다
+$o1 = [long]("8" + (Get-Date -Format "MMddHHmmss"))
+$o2 = $o1 + 1                                              # 3번에서 쓴다
+"exp = $exp, ship = $ship, o1 = $o1, o2 = $o2"             # 아래 SQL의 <$o1>·<$o2>에 이 값을 넣는다
 Send-Cmd ('{"type":"INBOUND","storeId":1,"shipmentId":"' + $ship + '","items":[{"productCode":"P015","quantity":10,"expiryDate":"' + $exp + '"}]}')
-Send-Cmd '{"type":"RESERVE","orderId":800001,"storeId":1,"productId":15,"quantity":3}'
-Show-Results 800001     # RESERVED, unitPrice·productName·lots 포함
-Send-Cmd '{"type":"CONFIRM","orderId":800001,"storeId":1}'
+Send-Cmd ('{"type":"RESERVE","orderId":' + $o1 + ',"storeId":1,"productId":15,"quantity":3}')
+Show-Results $o1     # RESERVED, unitPrice·productName·lots 포함
+Send-Cmd ('{"type":"CONFIRM","orderId":' + $o1 + ',"storeId":1}')
 ```
 
 ```sql
 SELECT id, quantity, reserved_quantity FROM inventory_lot
 WHERE store_id = 1 AND product_id = 15 AND expiry_date = '<$exp> 23:59:59';           -- quantity 7, reserved 0 (이 lot에 다른 재고가 없을 때)
-SELECT order_id, lot_id, quantity, status FROM reservation WHERE order_id = 800001;    -- CONFIRMED
-SELECT type, quantity, ref_id FROM ledger WHERE ref_id IN ('800001') OR ref_id = '<위 $ship 값>';  -- INBOUND +10, SALE -3
+SELECT order_id, lot_id, quantity, status FROM reservation WHERE order_id = <$o1>;    -- CONFIRMED
+SELECT type, quantity, ref_id FROM ledger WHERE ref_id IN ('<$o1>', '<$ship>');       -- INBOUND +10, SALE -3
 ```
 
 ## 3. RESERVE 2 → RELEASE(EXPIRED) (T-14)
 
 ```powershell
-Send-Cmd '{"type":"RESERVE","orderId":800002,"storeId":1,"productId":15,"quantity":2}'
-Send-Cmd '{"type":"RELEASE","orderId":800002,"storeId":1,"reason":"EXPIRED"}'
+Send-Cmd ('{"type":"RESERVE","orderId":' + $o2 + ',"storeId":1,"productId":15,"quantity":2}')
+Send-Cmd ('{"type":"RELEASE","orderId":' + $o2 + ',"storeId":1,"reason":"EXPIRED"}')
 ```
 
 ```sql
-SELECT status FROM reservation WHERE order_id = 800002;                 -- RELEASED
+SELECT status FROM reservation WHERE order_id = <$o2>;                  -- RELEASED
 SELECT quantity, reserved_quantity FROM inventory_lot
 WHERE store_id = 1 AND product_id = 15 AND expiry_date = '<$exp> 23:59:59';     -- 7 / 0 (예약 복원)
-SELECT COUNT(*) FROM ledger WHERE ref_id = '800002';                    -- 0 (해제는 원장 없음)
+SELECT COUNT(*) FROM ledger WHERE ref_id = '<$o2>';                     -- 0 (해제는 원장 없음)
 ```
 
 ## 4. 기한 지난 INBOUND → 폐기 API → DISPOSE (T-17)

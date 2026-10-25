@@ -25,7 +25,7 @@ public class DisposalController {
     }
 
     /** 재고는 DISPOSE 쪽지를 처리할 때 바뀌므로 202로 응답한다 */
-    @Operation(summary = "S-32 lot 폐기 요청 (202 접수, 재고는 DISPOSE 쪽지 처리 때 감소)")
+    @Operation(summary = "S-32 lot 폐기 요청 (202 접수. 재고는 DISPOSE 쪽지 처리가 DONE으로 끝날 때만 감소, 모자라면 SKIPPED)")
     @PostMapping
     public ResponseEntity<DisposalResponse> requestDisposal(
             @RequestHeader(STORE_ID_HEADER) Long storeId,
