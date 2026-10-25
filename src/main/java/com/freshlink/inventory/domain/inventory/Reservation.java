@@ -67,6 +67,27 @@ public class Reservation {
         return reservation;
     }
 
+    public boolean isReserved() {
+        return status == ReservationStatus.RESERVED;
+    }
+
+    public void confirm() {
+        changeFromReserved(ReservationStatus.CONFIRMED);
+    }
+
+    public void release() {
+        changeFromReserved(ReservationStatus.RELEASED);
+    }
+
+    private void changeFromReserved(ReservationStatus next) {
+        if (status != ReservationStatus.RESERVED) {
+            throw new IllegalStateException(
+                    "RESERVED 예약만 " + next + "로 바꿀 수 있다: reservationId=" + id + ", status=" + status
+            );
+        }
+        this.status = next;
+    }
+
     public Long getId() {
         return id;
     }

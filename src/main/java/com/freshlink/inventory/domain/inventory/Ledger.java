@@ -62,6 +62,22 @@ public class Ledger {
         return ledger;
     }
 
+    /** 판매 확정. 수량은 음수로 저장한다(lot별 원장 합계 = lot 수량) */
+    public static Ledger sale(
+            Long storeId,
+            Long lotId,
+            int quantity,
+            String orderId
+    ) {
+        Ledger ledger = new Ledger();
+        ledger.storeId = storeId;
+        ledger.lotId = lotId;
+        ledger.type = LedgerType.SALE;
+        ledger.quantity = -quantity;
+        ledger.refId = orderId;
+        return ledger;
+    }
+
     public Long getId() {
         return id;
     }

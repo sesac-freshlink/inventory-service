@@ -101,6 +101,29 @@ public class InventoryLot {
         this.reservedQuantity += quantity;
     }
 
+    /** 결제 확정. 예약했던 수량만큼 실물과 예약을 같이 줄인다. 예약 뒤 기한이 지났어도 그대로 확정한다 */
+    public void confirm(int quantity) {
+        checkReserved(quantity);
+        this.quantity -= quantity;
+        this.reservedQuantity -= quantity;
+    }
+
+    /** 예약 해제. 실물은 그대로 두고 예약만 되돌린다 */
+    public void release(int quantity) {
+        checkReserved(quantity);
+        this.reservedQuantity -= quantity;
+    }
+
+    private void checkReserved(int quantity) {
+        if (quantity < 1 || quantity > reservedQuantity) {
+            throw new IllegalStateException(
+                    "예약 수량보다 많이 확정·해제하려 한다: lotId=" + id
+                            + ", quantity=" + quantity
+                            + ", reserved=" + reservedQuantity
+            );
+        }
+    }
+
     public Long getId() {
         return id;
     }
