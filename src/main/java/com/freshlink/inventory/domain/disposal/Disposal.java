@@ -44,6 +44,47 @@ public class Disposal {
     protected Disposal() {
     }
 
+    public static Disposal request(
+            Long storeId,
+            Long lotId,
+            int quantity,
+            String requestedBy,
+            LocalDateTime now
+    ) {
+        Disposal disposal = new Disposal();
+        disposal.storeId = storeId;
+        disposal.lotId = lotId;
+        disposal.quantity = quantity;
+        disposal.requestedBy = requestedBy;
+        disposal.status = DisposalStatus.REQUESTED;
+        disposal.createdAt = now;
+        return disposal;
+    }
+
+    public boolean isRequested() {
+        return status == DisposalStatus.REQUESTED;
+    }
+
+    /** DISPOSE 쪽지 처리 완료 */
+    public void done(LocalDateTime now) {
+        changeFromRequested(DisposalStatus.DONE, now);
+    }
+
+    /** 처리 때 수량이 모자라 반영하지 않음 */
+    public void skip(LocalDateTime now) {
+        changeFromRequested(DisposalStatus.SKIPPED, now);
+    }
+
+    private void changeFromRequested(DisposalStatus next, LocalDateTime now) {
+        if (status != DisposalStatus.REQUESTED) {
+            throw new IllegalStateException(
+                    "REQUESTED 폐기만 " + next + "로 바꿀 수 있다: disposalId=" + id + ", status=" + status
+            );
+        }
+        this.status = next;
+        this.processedAt = now;
+    }
+
     public Long getId() {
         return id;
     }

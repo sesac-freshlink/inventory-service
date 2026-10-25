@@ -15,6 +15,7 @@ import com.freshlink.common.idempotency.ProcessedMessages;
 import com.freshlink.common.message.BaseMessage;
 import com.freshlink.common.message.command.InboundItem;
 import com.freshlink.common.message.command.ConfirmMessage;
+import com.freshlink.common.message.command.DisposeMessage;
 import com.freshlink.common.message.command.InboundMessage;
 import com.freshlink.common.message.command.ReleaseMessage;
 import com.freshlink.common.message.command.ReserveMessage;
@@ -24,6 +25,8 @@ import com.freshlink.common.message.result.ReservedLot;
 import com.freshlink.common.message.result.ReservedMessage;
 import com.freshlink.common.outbox.OutboxWriter;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
+import com.freshlink.inventory.domain.disposal.Disposal;
+import com.freshlink.inventory.domain.disposal.DisposalRepository;
 import com.freshlink.inventory.domain.inbound.Inbound;
 import com.freshlink.inventory.domain.inbound.InboundRepository;
 import com.freshlink.inventory.domain.product.Product;
@@ -46,6 +49,7 @@ public class InventoryCommandService {
     private final InventoryLotRepository inventoryLotRepository;
     private final LedgerRepository ledgerRepository;
     private final ReservationRepository reservationRepository;
+    private final DisposalRepository disposalRepository;
     private final OutboxWriter outboxWriter;
     private final String resultsQueue;
     private final Clock clock;
@@ -57,6 +61,7 @@ public class InventoryCommandService {
             InventoryLotRepository inventoryLotRepository,
             LedgerRepository ledgerRepository,
             ReservationRepository reservationRepository,
+            DisposalRepository disposalRepository,
             OutboxWriter outboxWriter,
             @Value("${app.queue.results}") String resultsQueue,
             Clock clock
@@ -67,6 +72,7 @@ public class InventoryCommandService {
         this.inventoryLotRepository = inventoryLotRepository;
         this.ledgerRepository = ledgerRepository;
         this.reservationRepository = reservationRepository;
+        this.disposalRepository = disposalRepository;
         this.outboxWriter = outboxWriter;
         this.resultsQueue = resultsQueue;
         this.clock = clock;
@@ -95,6 +101,11 @@ public class InventoryCommandService {
 
         if (message instanceof ReleaseMessage releaseMessage) {
             handleRelease(releaseMessage);
+            return;
+        }
+
+        if (message instanceof DisposeMessage disposeMessage) {
+            handleDispose(disposeMessage);
             return;
         }
 
@@ -402,6 +413,57 @@ public class InventoryCommandService {
                 message.orderId(),
                 message.reason(),
                 reserved.size()
+        );
+    }
+
+    /**
+     * 폐기 반영 (명세 5-6). 요청 뒤 처리 전에 예약이 들어왔을 수 있으므로 폐기 가능 수량을 다시 확인한다.
+     * 모자라면 재고를 바꾸지 않고 SKIPPED로 끝낸다. 이미 처리된 폐기면 아무것도 안 한다.
+     */
+    private void handleDispose(DisposeMessage message) {
+        Disposal disposal = disposalRepository.findById(message.disposalId())
+                .orElseThrow(() -> new BusinessException(InventoryErrorCode.DISPOSAL_NOT_FOUND));
+
+        if (!disposal.isRequested()) {
+            log.info(
+                    "DISPOSE 이미 처리된 폐기: disposalId={}, status={}",
+                    disposal.getId(),
+                    disposal.getStatus()
+            );
+            return;
+        }
+
+        InventoryLot lot = inventoryLotRepository.findById(disposal.getLotId())
+                .orElseThrow(() -> new BusinessException(InventoryErrorCode.LOT_NOT_FOUND));
+        int quantity = disposal.getQuantity();
+        LocalDateTime now = LocalDateTime.now(clock);
+
+        if (lot.availableQuantity() < quantity) {
+            log.warn(
+                    "DISPOSE 수량 부족으로 건너뜀: disposalId={}, lotId={}, quantity={}, available={}",
+                    disposal.getId(),
+                    lot.getId(),
+                    quantity,
+                    lot.availableQuantity()
+            );
+            disposal.skip(now);
+            return;
+        }
+
+        lot.dispose(quantity);
+        ledgerRepository.save(Ledger.dispose(
+                lot.getStoreId(),
+                lot.getId(),
+                quantity,
+                String.valueOf(disposal.getId())
+        ));
+        disposal.done(now);
+
+        log.info(
+                "DISPOSE 처리: disposalId={}, lotId={}, quantity={}",
+                disposal.getId(),
+                lot.getId(),
+                quantity
         );
     }
 
