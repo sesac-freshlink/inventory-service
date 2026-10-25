@@ -5,12 +5,15 @@
 SET @store_id   = 1;
 SET @order_from = 900001;
 SET @order_to   = 900100;
+-- 투입 직전에 받은 reservation 마지막 id(절차 문서 4장). 이번 투입으로 생긴 예약만 건드린다
+SET @reservation_from = 0;
 
 -- 0. 지울 대상 미리 보기
 SELECT r.status, COUNT(*) AS reservation_rows, SUM(r.quantity) AS quantity
 FROM reservation r
 JOIN inventory_lot l ON l.id = r.lot_id
-WHERE r.order_id BETWEEN @order_from AND @order_to
+WHERE r.id > @reservation_from
+  AND r.order_id BETWEEN @order_from AND @order_to
   AND l.store_id = @store_id
 GROUP BY r.status;
 
@@ -21,7 +24,8 @@ UPDATE inventory_lot l
 JOIN (
     SELECT lot_id, SUM(quantity) AS reserved
     FROM reservation
-    WHERE order_id BETWEEN @order_from AND @order_to
+    WHERE id > @reservation_from
+      AND order_id BETWEEN @order_from AND @order_to
       AND status = 'RESERVED'
     GROUP BY lot_id
 ) r ON r.lot_id = l.id
@@ -33,7 +37,8 @@ WHERE l.store_id = @store_id;
 DELETE r
 FROM reservation r
 JOIN inventory_lot l ON l.id = r.lot_id
-WHERE r.order_id BETWEEN @order_from AND @order_to
+WHERE r.id > @reservation_from
+  AND r.order_id BETWEEN @order_from AND @order_to
   AND r.status IN ('RESERVED', 'RELEASED')
   AND l.store_id = @store_id;
 
@@ -41,7 +46,8 @@ WHERE r.order_id BETWEEN @order_from AND @order_to
 SELECT COUNT(*) AS remaining
 FROM reservation r
 JOIN inventory_lot l ON l.id = r.lot_id
-WHERE r.order_id BETWEEN @order_from AND @order_to
+WHERE r.id > @reservation_from
+  AND r.order_id BETWEEN @order_from AND @order_to
   AND r.status <> 'CONFIRMED'
   AND l.store_id = @store_id;
 
