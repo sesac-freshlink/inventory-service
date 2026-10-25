@@ -159,14 +159,14 @@ class FailureScenarioTest {
     }
 
     @Test
-    void unknownTypeJsonThrowsSoMessageGoesToDlq() {
+    void unknownTypeJsonThrowsInParserAndListener() {
         String body = """
                 {"messageId":"%s","type":"UNKNOWN","createdAt":"2026-10-25T12:00:00+09:00","storeId":2307}
                 """.formatted(newId());
 
         assertThatThrownBy(() -> MessageJson.fromJson(body))
                 .isInstanceOf(JacksonException.class);
-        // 리스너도 예외를 그대로 던진다. 삼키지 않아야 SQS가 다시 보내고 3번 실패하면 DLQ로 옮긴다
+        // 리스너도 JSON 예외를 삼키지 않고 그대로 던진다. 재전송·DLQ 이동은 SQS 설정 몫이라 이 테스트 밖이다(절차 문서 4장)
         assertThatThrownBy(() -> inventoryCommandListener.onCommand(body))
                 .isInstanceOf(JacksonException.class);
     }
