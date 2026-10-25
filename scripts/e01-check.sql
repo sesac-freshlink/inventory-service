@@ -55,6 +55,8 @@ FROM outbox
 WHERE message_type IN ('RESERVED', 'RESERVE_FAILED')
   AND id > @outbox_from
   AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.orderId')) AS UNSIGNED) BETWEEN @order_from AND @order_to
+  AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.storeId')) AS UNSIGNED) = @store_id
+  AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.productId')) AS UNSIGNED) = @product_id
 GROUP BY message_type;
 
 -- 4. 첫 결과부터 마지막 결과까지 걸린 시간(ms)
@@ -65,7 +67,9 @@ SELECT COUNT(*)                                                      AS results,
 FROM outbox
 WHERE message_type IN ('RESERVED', 'RESERVE_FAILED')
   AND id > @outbox_from
-  AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.orderId')) AS UNSIGNED) BETWEEN @order_from AND @order_to;
+  AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.orderId')) AS UNSIGNED) BETWEEN @order_from AND @order_to
+  AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.storeId')) AS UNSIGNED) = @store_id
+  AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.productId')) AS UNSIGNED) = @product_id;
 
 -- 5. 실패 사유별 건수 (재고 부족이면 OUT_OF_STOCK, availableQuantity는 0이어야 한다)
 SELECT JSON_UNQUOTE(JSON_EXTRACT(payload, '$.reason'))                    AS reason,
@@ -75,6 +79,8 @@ FROM outbox
 WHERE message_type = 'RESERVE_FAILED'
   AND id > @outbox_from
   AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.orderId')) AS UNSIGNED) BETWEEN @order_from AND @order_to
+  AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.storeId')) AS UNSIGNED) = @store_id
+  AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.productId')) AS UNSIGNED) = @product_id
 GROUP BY reason;
 
 -- 6. 불변식: 예약 합 <= 실물 합 (ok = 1)
@@ -89,6 +95,7 @@ WHERE store_id = @store_id
 SELECT id, quantity, reserved_quantity
 FROM inventory_lot
 WHERE store_id = @store_id
+  AND product_id = @product_id
   AND (quantity < 0 OR reserved_quantity < 0 OR reserved_quantity > quantity);
 
 -- 8. 예약 표와 lot 예약 수량이 맞는지 (이 상품에 시험 주문 말고 다른 예약이 없을 때 diff = 0)
