@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -364,8 +365,9 @@ public class InventoryCommandService {
             return;
         }
 
+        Map<Long, InventoryLot> lots = lotsOfStore(message.storeId(), message.orderId(), reserved);
         for (Reservation reservation : reserved) {
-            InventoryLot lot = findLot(reservation);
+            InventoryLot lot = lots.get(reservation.getLotId());
             lot.confirm(reservation.getQuantity());
             reservation.confirm();
             ledgerRepository.save(Ledger.sale(
@@ -400,8 +402,9 @@ public class InventoryCommandService {
             return;
         }
 
+        Map<Long, InventoryLot> lots = lotsOfStore(message.storeId(), message.orderId(), reserved);
         for (Reservation reservation : reserved) {
-            findLot(reservation).release(reservation.getQuantity());
+            lots.get(reservation.getLotId()).release(reservation.getQuantity());
             reservation.release();
         }
 
@@ -462,6 +465,27 @@ public class InventoryCommandService {
                 lot.getId(),
                 quantity
         );
+    }
+
+    /**
+     * 확정·해제 전에 예약한 lot이 모두 쪽지의 점포 것인지 확인한다. 하나라도 다르면 아무것도 바꾸지 않고 예외(DLQ)로 끝낸다.
+     * 다른 점포 lot을 바꾸면 점포별 FIFO 줄 밖에서 재고가 바뀌어 순서 보장이 깨진다
+     */
+    private Map<Long, InventoryLot> lotsOfStore(Long storeId, Long orderId, List<Reservation> reservations) {
+        Map<Long, InventoryLot> lots = new HashMap<>();
+        for (Reservation reservation : reservations) {
+            InventoryLot lot = findLot(reservation);
+            if (!lot.getStoreId().equals(storeId)) {
+                throw new IllegalStateException(
+                        "다른 점포의 예약이다: orderId=" + orderId
+                                + ", storeId=" + storeId
+                                + ", lotId=" + lot.getId()
+                                + ", lotStoreId=" + lot.getStoreId()
+                );
+            }
+            lots.put(lot.getId(), lot);
+        }
+        return lots;
     }
 
     private InventoryLot findLot(Reservation reservation) {

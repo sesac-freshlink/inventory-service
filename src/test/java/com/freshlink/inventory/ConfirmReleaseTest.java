@@ -21,12 +21,14 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * CONFIRM·RELEASE 처리(명세 5-4·5-5). 테스트끼리 DB를 같이 쓰므로 점포 ID·상품 코드·주문 ID를 테스트마다 다르게 둔다.
@@ -35,7 +37,11 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 @SpringBootTest(properties = "spring.cloud.aws.sqs.listener.auto-startup=false")
 class ConfirmReleaseTest {
 
-    static final String EXPIRY = "2027-12-31T23:59:59+09:00";
+    /** 이 테스트는 실제 시계를 쓰므로 유통기한을 늘 1년 뒤로 둔다. 날짜를 고정하면 그 날짜가 지난 뒤 예약이 실패한다 */
+    static final String EXPIRY = OffsetDateTime.now(ZoneOffset.ofHours(9))
+            .plusYears(1)
+            .withHour(23).withMinute(59).withSecond(59).withNano(0)
+            .toString();
 
     @Autowired
     InventoryCommandService inventoryCommandService;
@@ -144,6 +150,26 @@ class ConfirmReleaseTest {
         assertThat(((Number) lot(storeId).get("quantity")).intValue()).isEqualTo(7);
         assertThat(saleLedger(storeId)).hasSize(1);
         assertThat(errorLogs()).isEmpty();
+    }
+
+    @Test
+    void confirmAndReleaseWithOtherStoreIdChangeNothing() {
+        long storeId = 1407L;
+        long orderId = 1407L;
+        long productId = insertProduct("P1407");
+        inbound(storeId, "P1407", 10);
+        reserve(orderId, storeId, productId, 3);
+
+        assertThatThrownBy(() -> inventoryCommandService.handle(confirm(orderId, 9999L)))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> inventoryCommandService.handle(release(orderId, 9999L, ReleaseReason.EXPIRED)))
+                .isInstanceOf(IllegalStateException.class);
+
+        Map<String, Object> lot = lot(storeId);
+        assertThat(((Number) lot.get("quantity")).intValue()).isEqualTo(10);
+        assertThat(((Number) lot.get("reserved_quantity")).intValue()).isEqualTo(3);
+        assertThat(reservationStatuses(orderId)).containsExactly("RESERVED");
+        assertThat(saleLedger(storeId)).isEmpty();
     }
 
     @Test
