@@ -7,29 +7,28 @@ import com.freshlink.common.message.command.DisposeMessage;
 import com.freshlink.common.message.command.InboundItem;
 import com.freshlink.common.message.command.InboundMessage;
 import com.freshlink.common.message.command.ReserveMessage;
+import com.freshlink.inventory.common.web.XStoreIdFilter;
 import com.freshlink.inventory.domain.inventory.InventoryCommandService;
 import com.jayway.jsonpath.JsonPath;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
 
-import java.time.Clock;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static com.freshlink.inventory.FixedClockConfiguration.NOW;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -39,28 +38,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * S-32 폐기 API와 DISPOSE 처리(명세 4 S-32, 5-6). 지금 시각은 2026-10-25 12:00 KST로 고정한다.
  * 임박 lot = 10/25 23:59:59, 경과 lot = 10/24 23:59:59, 정상 lot = 2027-12-31.
  */
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, FixedClockConfiguration.class})
 @SpringBootTest(properties = "spring.cloud.aws.sqs.listener.auto-startup=false")
-@AutoConfigureMockMvc
 class DisposalTest {
 
-    static final OffsetDateTime NOW = OffsetDateTime.parse("2026-10-25T12:00:00+09:00");
     static final String IMMINENT = "2026-10-25T23:59:59+09:00";
     static final String EXPIRED = "2026-10-24T23:59:59+09:00";
     static final String NORMAL = "2027-12-31T23:59:59+09:00";
     static final String USER_ID = "11111111-2222-3333-4444-555555555555";
 
-    @TestConfiguration(proxyBeanMethods = false)
-    static class FixedClockConfig {
-
-        @Bean
-        @Primary
-        Clock fixedClock() {
-            return Clock.fixed(NOW.toInstant(), ZoneId.of("Asia/Seoul"));
-        }
-    }
+    // @AutoConfigureMockMvc를 붙이면 컨텍스트가 갈라져 MySQL 컨테이너가 하나 더 뜬다. 같은 컨텍스트로 직접 만든다
+    @Autowired
+    WebApplicationContext webApplicationContext;
 
     @Autowired
+    XStoreIdFilter xStoreIdFilter;
+
     MockMvc mockMvc;
 
     @Autowired
@@ -71,6 +64,13 @@ class DisposalTest {
 
     @Value("${app.queue.commands}")
     String commandsQueue;
+
+    @BeforeEach
+    void setUpMockMvc() {
+        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
+                .addFilters(xStoreIdFilter)
+                .build();
+    }
 
     @Test
     void acceptedSavesRequestedDisposalAndDisposeOutbox() throws Exception {

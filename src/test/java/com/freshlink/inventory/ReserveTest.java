@@ -13,19 +13,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-import java.time.Clock;
 import java.time.OffsetDateTime;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static com.freshlink.inventory.FixedClockConfiguration.NOW;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
@@ -33,21 +29,10 @@ import static org.assertj.core.api.Assertions.tuple;
  * RESERVE 처리(명세 5-3). 지금 시각은 2026-10-25 12:00 KST로 고정한다.
  * 테스트끼리 DB를 같이 쓰므로 점포 ID·상품 코드·주문 ID를 테스트마다 다르게 둔다.
  */
-@Import(TestcontainersConfiguration.class)
+@Import({TestcontainersConfiguration.class, FixedClockConfiguration.class})
 @SpringBootTest(properties = "spring.cloud.aws.sqs.listener.auto-startup=false")
 class ReserveTest {
 
-    static final OffsetDateTime NOW = OffsetDateTime.parse("2026-10-25T12:00:00+09:00");
-
-    @TestConfiguration(proxyBeanMethods = false)
-    static class FixedClockConfig {
-
-        @Bean
-        @Primary
-        Clock fixedClock() {
-            return Clock.fixed(NOW.toInstant(), ZoneId.of("Asia/Seoul"));
-        }
-    }
 
     @Autowired
     InventoryCommandService inventoryCommandService;
