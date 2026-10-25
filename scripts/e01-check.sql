@@ -11,16 +11,25 @@ SET @order_to   = 900100;
 SET @outbox_from = 0;
 SET @reservation_from = 0;
 
--- 1. lot별 수량. 예약 성공 수 = 처음 재고 N이면 reserved_quantity 합이 N이다
+-- 1. lot별 수량(기한 지난 lot도 모두 보인다). expired = 1이면 예약에서 빠지는 lot이다
+--    expiry_date는 한국 시각으로 저장되고 RDS 세션은 UTC라 UTC_TIMESTAMP() + 9시간과 비교한다
 SELECT id                              AS lot_id,
        expiry_date,
        quantity,
        reserved_quantity,
-       quantity - reserved_quantity    AS available
+       quantity - reserved_quantity    AS available,
+       expiry_date <= UTC_TIMESTAMP() + INTERVAL 9 HOUR AS expired
 FROM inventory_lot
 WHERE store_id = @store_id
   AND product_id = @product_id
 ORDER BY expiry_date, id;
+
+-- 1-1. 예약할 수 있는 재고 합. 투입 전에 실행한 이 값이 처음 재고 N이다(예약 처리와 같은 expiry_date > 지금 규칙)
+SELECT COALESCE(SUM(quantity - reserved_quantity), 0) AS reservable
+FROM inventory_lot
+WHERE store_id = @store_id
+  AND product_id = @product_id
+  AND expiry_date > UTC_TIMESTAMP() + INTERVAL 9 HOUR;
 
 -- 2. 시험 주문의 예약 상태별 건수 (lot 두 개에 걸친 주문은 행이 2개라 주문 수는 DISTINCT로 센다)
 SELECT r.status,
