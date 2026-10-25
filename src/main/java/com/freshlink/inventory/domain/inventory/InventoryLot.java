@@ -114,6 +114,18 @@ public class InventoryLot {
         this.reservedQuantity -= quantity;
     }
 
+    /** 폐기. 예약이 잡지 않은 수량 안에서만 실물을 줄인다 */
+    public void dispose(int quantity) {
+        if (quantity < 1 || quantity > availableQuantity()) {
+            throw new IllegalStateException(
+                    "폐기 수량이 폐기 가능 수량을 넘는다: lotId=" + id
+                            + ", quantity=" + quantity
+                            + ", available=" + availableQuantity()
+            );
+        }
+        this.quantity -= quantity;
+    }
+
     private void checkReserved(int quantity) {
         if (quantity < 1 || quantity > reservedQuantity) {
             throw new IllegalStateException(

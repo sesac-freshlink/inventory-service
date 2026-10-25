@@ -78,6 +78,22 @@ public class Ledger {
         return ledger;
     }
 
+    /** 폐기. 수량은 음수로 저장한다 */
+    public static Ledger dispose(
+            Long storeId,
+            Long lotId,
+            int quantity,
+            String disposalId
+    ) {
+        Ledger ledger = new Ledger();
+        ledger.storeId = storeId;
+        ledger.lotId = lotId;
+        ledger.type = LedgerType.DISPOSE;
+        ledger.quantity = -quantity;
+        ledger.refId = disposalId;
+        return ledger;
+    }
+
     public Long getId() {
         return id;
     }
