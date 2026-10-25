@@ -84,6 +84,23 @@ public class InventoryLot {
         this.quantity += quantity;
     }
 
+    /** 구매 가능 수량(실물 − 예약). 경과 여부는 따지지 않는다 */
+    public int availableQuantity() {
+        return quantity - reservedQuantity;
+    }
+
+    /** 결제 대기 수량을 잡는다. chk_lot_reserved(reserved <= quantity)를 넘지 않게 먼저 확인한다 */
+    public void reserve(int quantity) {
+        if (quantity < 1 || quantity > availableQuantity()) {
+            throw new IllegalStateException(
+                    "예약 수량이 구매 가능 수량을 넘는다: lotId=" + id
+                            + ", quantity=" + quantity
+                            + ", available=" + availableQuantity()
+            );
+        }
+        this.reservedQuantity += quantity;
+    }
+
     public Long getId() {
         return id;
     }

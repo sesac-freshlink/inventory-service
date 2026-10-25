@@ -58,6 +58,15 @@ public class Reservation {
     protected Reservation() {
     }
 
+    public static Reservation reserve(Long orderId, Long lotId, int quantity) {
+        Reservation reservation = new Reservation();
+        reservation.orderId = orderId;
+        reservation.lotId = lotId;
+        reservation.quantity = quantity;
+        reservation.status = ReservationStatus.RESERVED;
+        return reservation;
+    }
+
     public Long getId() {
         return id;
     }
