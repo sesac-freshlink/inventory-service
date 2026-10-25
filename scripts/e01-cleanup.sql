@@ -39,9 +39,11 @@ WHERE r.order_id BETWEEN @order_from AND @order_to
 
 -- 3. 확인: 남은 시험 예약 0행(CONFIRMED 제외), 음수 lot 0행
 SELECT COUNT(*) AS remaining
-FROM reservation
-WHERE order_id BETWEEN @order_from AND @order_to
-  AND status <> 'CONFIRMED';
+FROM reservation r
+JOIN inventory_lot l ON l.id = r.lot_id
+WHERE r.order_id BETWEEN @order_from AND @order_to
+  AND r.status <> 'CONFIRMED'
+  AND l.store_id = @store_id;
 
 SELECT id, quantity, reserved_quantity
 FROM inventory_lot
