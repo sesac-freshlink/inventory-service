@@ -87,7 +87,7 @@ API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gatew
 - **reservation:** RESERVE로 `RESERVED` → CONFIRM이면 `CONFIRMED`(lot 실물·예약 감소, 원장 SALE) / RELEASE면 `RELEASED`(예약만 복원, 원장 없음). 확정·해제된 예약은 다시 바뀌지 않는다.
 - **disposal:** `POST /owner/disposals`로 `REQUESTED` → DISPOSE 쪽지 처리 때 `DONE`(lot 수량 감소, 원장 DISPOSE) / 폐기 가능 수량이 모자라면 `SKIPPED`(재고 그대로).
 - **ledger:** 실물이 바뀔 때만 한 줄 추가한다. 입고 `+n`(ref_id = shipmentId), 판매 `−n`(orderId), 폐기 `−n`(disposalId). lot별 합계 = `inventory_lot.quantity`.
-- **inventory_lot.status:** 스케줄러가 갱신하는 표시용(NORMAL → IMMINENT → EXPIRED). 판매 차단·폐기 가능 판단은 이 값이 아니라 항상 `expiry_date > 지금`으로 한다.
+- **inventory_lot.status:** 스케줄러가 갱신하는 표시용(NORMAL → IMMINENT → EXPIRED). 판단에는 이 값을 쓰지 않고 그때마다 `expiry_date`와 지금 시각으로 계산한다. 판매(구매 가능 수량·예약)는 `expiry_date > 지금`인 lot만, 폐기 요청은 계산한 상태가 임박(24시간 이내)·경과인 lot만 받는다(정상 lot은 409 `NOT_DISPOSABLE`).
 
 테이블은 **Flyway 마이그레이션**으로 만든다. `src/main/resources/db/migration/V1__init.sql`부터 순서대로 두고, 앱이 뜰 때 Flyway가 아직 안 적용된 파일을 순서대로 실행한다. JPA `ddl-auto`로 테이블을 만들지 않는다. 한 번 적용된 파일은 고치지 않고 `V2__...`처럼 새 파일을 추가한다.
 

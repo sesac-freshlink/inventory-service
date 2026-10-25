@@ -46,9 +46,17 @@ function Send-Cmd([string]$json, [long]$storeId = 1) {
     aws sqs send-message --queue-url $cmd --message-body ("file://" + ($file -replace "\\", "/")) --message-group-id "$storeId" --message-deduplication-id $id --query MessageId --output text
 }
 
-# 개인 결과 큐에 쌓인 RESERVED·RESERVE_FAILED를 본다(지우지 않는다)
-function Show-Results { aws sqs receive-message --queue-url $res --max-number-of-messages 10 --visibility-timeout 0 --query "Messages[].Body" }
+# 개인 결과 큐에 쌓인 RESERVED·RESERVE_FAILED를 본다(지우지 않는다). 쪽지 처리는 비동기라 최대 1분 기다린다
+function Show-Results {
+    for ($i = 0; $i -lt 6; $i++) {
+        $bodies = aws sqs receive-message --queue-url $res --max-number-of-messages 10 --visibility-timeout 0 --wait-time-seconds 10 --query "Messages[].Body" --output json | ConvertFrom-Json
+        if ($bodies) { return $bodies }
+    }
+    Write-Warning "1분 동안 결과 쪽지가 없다. PC inventory 로그와 QUEUE_PREFIX를 확인한다"
+}
 ```
+
+쪽지는 SQS를 거쳐 비동기로 처리된다. 아래 SQL에서 행이 아직 없거나 값이 그대로면 몇 초 뒤 다시 조회한다.
 
 DB 확인은 MySQL 클라이언트로 `127.0.0.1:3306`의 `inventory` 스키마에 붙어서 한다. 시험 상품의 ID를 먼저 확인한다.
 
@@ -62,7 +70,9 @@ SELECT id, product_code, name, price FROM product WHERE product_code IN ('P015',
 
 ```powershell
 $ship = "SHP-DEVCHK-" + (Get-Date -Format "yyyyMMddHHmmss")
-Send-Cmd ('{"type":"INBOUND","storeId":1,"shipmentId":"' + $ship + '","items":[{"productCode":"P015","quantity":10,"expiryDate":"2026-12-31"}]}')
+$exp = (Get-Date).AddMonths(2).ToString("yyyy-MM-dd")     # 실행일보다 뒤인 유통기한. 아래 SQL의 <$exp>에 이 값을 넣는다
+"exp = $exp, ship = $ship"
+Send-Cmd ('{"type":"INBOUND","storeId":1,"shipmentId":"' + $ship + '","items":[{"productCode":"P015","quantity":10,"expiryDate":"' + $exp + '"}]}')
 Send-Cmd '{"type":"RESERVE","orderId":800001,"storeId":1,"productId":15,"quantity":3}'
 Show-Results     # RESERVED, orderId 800001, unitPrice·productName·lots 포함
 Send-Cmd '{"type":"CONFIRM","orderId":800001,"storeId":1}'
@@ -70,7 +80,7 @@ Send-Cmd '{"type":"CONFIRM","orderId":800001,"storeId":1}'
 
 ```sql
 SELECT id, quantity, reserved_quantity FROM inventory_lot
-WHERE store_id = 1 AND product_id = 15 AND expiry_date = '2026-12-31 23:59:59';        -- quantity 7, reserved 0 (이 lot에 다른 재고가 없을 때)
+WHERE store_id = 1 AND product_id = 15 AND expiry_date = '<$exp> 23:59:59';           -- quantity 7, reserved 0 (이 lot에 다른 재고가 없을 때)
 SELECT order_id, lot_id, quantity, status FROM reservation WHERE order_id = 800001;    -- CONFIRMED
 SELECT type, quantity, ref_id FROM ledger WHERE ref_id IN ('800001') OR ref_id = '<위 $ship 값>';  -- INBOUND +10, SALE -3
 ```
@@ -85,11 +95,13 @@ Send-Cmd '{"type":"RELEASE","orderId":800002,"storeId":1,"reason":"EXPIRED"}'
 ```sql
 SELECT status FROM reservation WHERE order_id = 800002;                 -- RELEASED
 SELECT quantity, reserved_quantity FROM inventory_lot
-WHERE store_id = 1 AND product_id = 15 AND expiry_date = '2026-12-31 23:59:59';  -- 7 / 0 (예약 복원)
+WHERE store_id = 1 AND product_id = 15 AND expiry_date = '<$exp> 23:59:59';     -- 7 / 0 (예약 복원)
 SELECT COUNT(*) FROM ledger WHERE ref_id = '800002';                    -- 0 (해제는 원장 없음)
 ```
 
 ## 4. 기한 지난 INBOUND → 폐기 API → DISPOSE (T-17)
+
+5개를 입고해 3개만 폐기한다. 남은 2개는 8번 화면 폐기 확인에 쓴다.
 
 ```powershell
 $ship2 = "SHP-DEVCHK-EXP-" + (Get-Date -Format "yyyyMMddHHmmss")
@@ -98,25 +110,31 @@ Send-Cmd ('{"type":"INBOUND","storeId":1,"shipmentId":"' + $ship2 + '","items":[
 
 ```sql
 SELECT id, quantity FROM inventory_lot
-WHERE store_id = 1 AND product_id = 16 AND expiry_date = '2026-10-01 23:59:59';   -- 아래 lotId에 넣는다
+WHERE store_id = 1 AND product_id = 16 AND expiry_date = '2026-10-01 23:59:59';   -- 아래 lotId에 넣는다. 행이 나올 때까지 다시 조회한다
 ```
 
 PC inventory에 직접 요청한다. gateway 대신 헤더를 손으로 붙인다(`X-User-Id`는 아무 UUID).
 
 ```powershell
 $lotId = <위 id>
-Invoke-RestMethod -Method Post -Uri http://localhost:8080/owner/disposals `
-    -Headers @{ "X-Store-Id" = "1"; "X-User-Id" = "00000000-0000-0000-0000-000000000001" } `
-    -ContentType "application/json" -Body ('{"lotId":' + $lotId + ',"quantity":5}')
-# 202 { disposalId, lotId, quantity }. 정상 lot이면 409, 다른 점포 헤더면 403
+try {
+    $r = Invoke-WebRequest -UseBasicParsing -Method Post -Uri http://localhost:8080/owner/disposals `
+        -Headers @{ "X-Store-Id" = "1"; "X-User-Id" = "00000000-0000-0000-0000-000000000001" } `
+        -ContentType "application/json" -Body ('{"lotId":' + $lotId + ',"quantity":3}')
+    "status = $($r.StatusCode)"     # 202여야 한다
+    $r.Content                       # { disposalId, lotId, quantity }
+} catch {
+    # 4xx는 예외로 온다. 정상 lot이면 409, 다른 점포 헤더면 403
+    "status = $($_.Exception.Response.StatusCode.value__)"
+}
 ```
 
-Outbox 발행기가 1초 안에 DISPOSE를 같은 개인 큐로 보내고 PC inventory가 다시 받아 처리한다.
+202는 접수만 뜻한다. Outbox 발행기가 DISPOSE를 같은 개인 큐로 보내고 PC inventory가 다시 받아 처리한 뒤에 재고가 바뀐다. 아래 첫 조회가 `REQUESTED`면 몇 초 뒤 다시 조회하고, `DONE`(또는 `SKIPPED`)이 된 뒤에 나머지를 본다.
 
 ```sql
 SELECT id, status, processed_at FROM disposal ORDER BY id DESC LIMIT 1;                  -- DONE
-SELECT quantity FROM inventory_lot WHERE id = <lotId>;                                     -- 0
-SELECT type, quantity, ref_id FROM ledger WHERE lot_id = <lotId> ORDER BY id;              -- INBOUND +5, DISPOSE -5
+SELECT quantity FROM inventory_lot WHERE id = <lotId>;                                     -- 2
+SELECT type, quantity, ref_id FROM ledger WHERE lot_id = <lotId> ORDER BY id;              -- INBOUND +5, DISPOSE -3
 ```
 
 ## 5. 유통기한 스케줄러 1분 주기 (T-18)
@@ -153,8 +171,8 @@ SELECT id, expiry_date, status FROM inventory_lot WHERE store_id = 1 AND quantit
 PR이 dev에 머지되고 ArgoCD가 새 이미지를 올린 뒤, dev 클러스터가 켜져 있을 때 한다.
 
 1. dev 주소(CloudFront)에 점주 계정으로 로그인한다.
-2. **변동 이력:** 2·4번에서 만든 입고 +10, 판매 −3, 폐기 −5가 보인다. 종류 버튼으로 거르면 그 종류만 남는다.
-3. **임박·폐기:** 경과 탭에 기한 지난 lot이 보인다. 하나를 골라 [선택 폐기] → [폐기 요청] → "폐기 요청됨" 토스트 → **3초 안에** 그 lot 수량이 줄거나 목록에서 빠진다.
+2. **변동 이력:** 2·4번에서 만든 입고 +10, 판매 −3, 입고 +5, 폐기 −3이 보인다. 종류 버튼으로 거르면 그 종류만 남는다.
+3. **임박·폐기:** 경과 탭에 4번에서 2개 남긴 P016 lot이 보인다. 하나를 골라 [선택 폐기] → [폐기 요청] → "폐기 요청됨" 토스트 → **3초 안에** 그 lot 수량이 줄거나 목록에서 빠진다.
 4. 위 화면을 캡처해 `ai_docs\WBS15\`, `ai_docs\WBS19\`에 dev 이름으로 더 넣는다.
 
 dev 클러스터는 공용 큐(`dev-`)를 쓴다. PC inventory는 개인 큐(`dev-taewoo-`)라 서로 쪽지를 가져가지 않는다.
