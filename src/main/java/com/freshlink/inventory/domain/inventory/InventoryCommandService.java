@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -13,7 +14,9 @@ import com.freshlink.common.error.BusinessException;
 import com.freshlink.common.idempotency.ProcessedMessages;
 import com.freshlink.common.message.BaseMessage;
 import com.freshlink.common.message.command.InboundItem;
+import com.freshlink.common.message.command.ConfirmMessage;
 import com.freshlink.common.message.command.InboundMessage;
+import com.freshlink.common.message.command.ReleaseMessage;
 import com.freshlink.common.message.command.ReserveMessage;
 import com.freshlink.common.message.result.ReserveFailReason;
 import com.freshlink.common.message.result.ReserveFailedMessage;
@@ -82,6 +85,16 @@ public class InventoryCommandService {
 
         if (message instanceof ReserveMessage reserveMessage) {
             handleReserve(reserveMessage);
+            return;
+        }
+
+        if (message instanceof ConfirmMessage confirmMessage) {
+            handleConfirm(confirmMessage);
+            return;
+        }
+
+        if (message instanceof ReleaseMessage releaseMessage) {
+            handleRelease(releaseMessage);
             return;
         }
 
@@ -260,7 +273,7 @@ public class InventoryCommandService {
     /** 같은 orderId가 다른 messageId로 다시 오면 이미 잡은 예약으로 같은 RESERVED를 다시 보낸다 (명세 5-3 1번) */
     private void resendReserved(ReserveMessage message, List<Reservation> reservations) {
         boolean allReserved = reservations.stream()
-                .allMatch(reservation -> reservation.getStatus() == ReservationStatus.RESERVED);
+                .allMatch(Reservation::isReserved);
         if (!allReserved) {
             log.warn(
                     "RESERVE 재수신: 이미 확정·해제된 주문이라 결과를 보내지 않는다: orderId={}, messageId={}",
@@ -307,6 +320,118 @@ public class InventoryCommandService {
                 message.orderId(),
                 message.messageId()
         );
+    }
+
+    /**
+     * 결제 성공. RESERVED 예약마다 실물·예약을 줄이고 원장 SALE을 남긴다. 결과 쪽지는 없다 (명세 5-4).
+     * 예약이 없거나 해제된 주문은 고칠 방법이 없어 에러 로그만 남기고 쪽지는 정상 처리로 끝낸다.
+     */
+    private void handleConfirm(ConfirmMessage message) {
+        List<Reservation> reservations =
+                reservationRepository.findByOrderIdOrderByIdAsc(message.orderId());
+
+        boolean allReleased = reservations.stream()
+                .allMatch(reservation -> reservation.getStatus() == ReservationStatus.RELEASED);
+        if (reservations.isEmpty() || allReleased) {
+            log.error(
+                    "CONFIRM 반영 안 함: 예약이 없거나 해제된 주문: orderId={}, storeId={}, messageId={}",
+                    message.orderId(),
+                    message.storeId(),
+                    message.messageId()
+            );
+            return;
+        }
+
+        List<Reservation> reserved = reservations.stream()
+                .filter(Reservation::isReserved)
+                .toList();
+        if (reserved.isEmpty()) {
+            log.info(
+                    "CONFIRM 이미 확정된 주문: orderId={}, messageId={}",
+                    message.orderId(),
+                    message.messageId()
+            );
+            return;
+        }
+
+        Map<Long, InventoryLot> lots = lotsOfStore(message.storeId(), message.orderId(), reserved);
+        for (Reservation reservation : reserved) {
+            InventoryLot lot = lots.get(reservation.getLotId());
+            lot.confirm(reservation.getQuantity());
+            reservation.confirm();
+            ledgerRepository.save(Ledger.sale(
+                    lot.getStoreId(),
+                    lot.getId(),
+                    reservation.getQuantity(),
+                    String.valueOf(message.orderId())
+            ));
+        }
+
+        log.info(
+                "CONFIRM 처리: orderId={}, lots={}",
+                message.orderId(),
+                reserved.size()
+        );
+    }
+
+    /** 결제 실패·미결제 만료. RESERVED 예약을 되돌린다. 원장은 남기지 않는다 (명세 5-5) */
+    private void handleRelease(ReleaseMessage message) {
+        List<Reservation> reserved = reservationRepository
+                .findByOrderIdOrderByIdAsc(message.orderId())
+                .stream()
+                .filter(Reservation::isReserved)
+                .toList();
+        if (reserved.isEmpty()) {
+            log.info(
+                    "RELEASE 해제할 예약 없음: orderId={}, reason={}, messageId={}",
+                    message.orderId(),
+                    message.reason(),
+                    message.messageId()
+            );
+            return;
+        }
+
+        Map<Long, InventoryLot> lots = lotsOfStore(message.storeId(), message.orderId(), reserved);
+        for (Reservation reservation : reserved) {
+            lots.get(reservation.getLotId()).release(reservation.getQuantity());
+            reservation.release();
+        }
+
+        log.info(
+                "RELEASE 처리: orderId={}, reason={}, lots={}",
+                message.orderId(),
+                message.reason(),
+                reserved.size()
+        );
+    }
+
+    /**
+     * 확정·해제 전에 예약한 lot이 모두 쪽지의 점포 것인지 확인한다. 하나라도 다르면 아무것도 바꾸지 않고 예외(DLQ)로 끝낸다.
+     * 다른 점포 lot을 바꾸면 점포별 FIFO 줄 밖에서 재고가 바뀌어 순서 보장이 깨진다
+     */
+    private Map<Long, InventoryLot> lotsOfStore(Long storeId, Long orderId, List<Reservation> reservations) {
+        Map<Long, InventoryLot> lots = new HashMap<>();
+        for (Reservation reservation : reservations) {
+            InventoryLot lot = findLot(reservation);
+            if (!lot.getStoreId().equals(storeId)) {
+                throw new IllegalStateException(
+                        "다른 점포의 예약이다: orderId=" + orderId
+                                + ", storeId=" + storeId
+                                + ", lotId=" + lot.getId()
+                                + ", lotStoreId=" + lot.getStoreId()
+                );
+            }
+            lots.put(lot.getId(), lot);
+        }
+        return lots;
+    }
+
+    private InventoryLot findLot(Reservation reservation) {
+        return inventoryLotRepository.findById(reservation.getLotId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "예약의 lot이 없다: reservationId=" + reservation.getId()
+                                + ", lotId=" + reservation.getLotId()
+                ));
     }
 
     private void saveReserveFailed(
