@@ -1,11 +1,14 @@
 -- E-01 동시 예약 시험 결과 확인 (T-22). 읽기만 한다.
 -- scripts/e01-reserve-100.ps1로 보낸 뒤 실행한다. 절차는 docs/동시성-테스트-절차.md.
--- 아래 네 값을 시험에 맞춘다. orderId 범위는 스크립트가 끝에 찍어 준다(기본 900001~900100).
+-- 아래 다섯 값을 시험에 맞춘다. orderId 범위는 스크립트가 끝에 찍어 준다(기본 900001~900100).
+-- @outbox_from은 투입 직전에 SELECT COALESCE(MAX(id), 0) FROM outbox; 로 받은 값이다.
+-- 정리 SQL은 outbox를 지우지 않으므로, 이 값이 없으면 같은 orderId 범위로 다시 시험할 때 이전 결과가 섞인다.
 
 SET @store_id   = 1;
 SET @product_id = 15;
 SET @order_from = 900001;
 SET @order_to   = 900100;
+SET @outbox_from = 0;
 
 -- 1. lot별 수량. 예약 성공 수 = 처음 재고 N이면 reserved_quantity 합이 N이다
 SELECT id                              AS lot_id,
@@ -36,6 +39,7 @@ SELECT message_type,
        MAX(created_at)                                                  AS last_at
 FROM outbox
 WHERE message_type IN ('RESERVED', 'RESERVE_FAILED')
+  AND id > @outbox_from
   AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.orderId')) AS UNSIGNED) BETWEEN @order_from AND @order_to
 GROUP BY message_type;
 
@@ -46,6 +50,7 @@ SELECT COUNT(*)                                                      AS results,
        TIMESTAMPDIFF(MICROSECOND, MIN(created_at), MAX(created_at)) / 1000 AS elapsed_ms
 FROM outbox
 WHERE message_type IN ('RESERVED', 'RESERVE_FAILED')
+  AND id > @outbox_from
   AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.orderId')) AS UNSIGNED) BETWEEN @order_from AND @order_to;
 
 -- 5. 실패 사유별 건수 (재고 부족이면 OUT_OF_STOCK, availableQuantity는 0이어야 한다)
@@ -54,6 +59,7 @@ SELECT JSON_UNQUOTE(JSON_EXTRACT(payload, '$.reason'))                    AS rea
        MAX(CAST(JSON_EXTRACT(payload, '$.availableQuantity') AS SIGNED)) AS max_available
 FROM outbox
 WHERE message_type = 'RESERVE_FAILED'
+  AND id > @outbox_from
   AND CAST(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.orderId')) AS UNSIGNED) BETWEEN @order_from AND @order_to
 GROUP BY reason;
 
