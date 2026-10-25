@@ -15,6 +15,13 @@ public interface InventoryLotRepository extends JpaRepository<InventoryLot, Long
             Long productId
     );
 
+    /** 예약(FEFO)용. 기한이 지나지 않은 lot만 유통기한 빠른 순으로 */
+    List<InventoryLot> findByStoreIdAndProductIdAndExpiryDateAfterOrderByExpiryDateAscIdAsc(
+            Long storeId,
+            Long productId,
+            LocalDateTime now
+    );
+
     Optional<InventoryLot> findByStoreIdAndProductIdAndExpiryDate(
             Long storeId,
             Long productId,
