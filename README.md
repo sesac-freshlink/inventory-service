@@ -60,12 +60,14 @@ flowchart LR
 | S-20 | 입고 처리 | INBOUND 쪽지 | 같은 shipmentId는 두 번 반영되지 않는다 |
 | S-30 | 임박 목록 | `GET /owner/inventory/expiring` | 24시간 이내·경과 lot 구분 |
 | S-31 | 기한 경과 판매 차단 | 내부 로직 | 경과 lot은 구매 가능 수량·예약에서 제외 |
-| S-32 | 폐기 | `POST /owner/disposals` | lot 수량 감소 + 원장 '폐기' |
+| S-32 | 폐기 | `POST /owner/disposals` 본문 `{lotId, quantity}` → **202** `{disposalId, lotId, quantity}`. 헤더 `X-Store-Id`·`X-User-Id`. 오류: 404 `LOT_NOT_FOUND`, 403 `LOT_NOT_IN_STORE`, 409 `NOT_DISPOSABLE`(정상 lot), 400 `VALIDATION_ERROR`(수량 1 미만)·`INVALID_QUANTITY`(폐기 가능 수량 초과) | 202 뒤 DISPOSE 쪽지를 처리하면 lot 수량 감소 + 원장 '폐기'. 처리 때 수량이 모자라면 SKIPPED |
 | U-10 | 점포 상품 목록 | `GET /stores/{storeId}/products` | 0개면 '품절' |
-| E-01 | 점포별 순서 처리 | FIFO 큐 소비 | 동시 예약 100건에도 재고가 음수가 되지 않는다 |
-| E-09 | 유통기한 스케줄러 | 스케줄러 (ShedLock) | 주기마다 임박·경과 상태 갱신 |
+| E-01 | 점포별 순서 처리 (구현됨) | FIFO 큐 소비. RESERVE(FEFO 예약 → RESERVED/RESERVE_FAILED), CONFIRM, RELEASE, DISPOSE, INBOUND | 동시 예약 100건에도 재고가 음수가 되지 않는다 |
+| E-09 | 유통기한 스케줄러 (구현됨) | `app.expiry.cron`(기본 자정) + ShedLock `lotStatusJob` | 주기마다 임박·경과 상태 갱신 |
 
-점주 API는 점포 ID를 주소로 받지 않고 항상 gateway가 붙여 준 `X-Store-Id` 헤더를 쓴다.
+점주 API는 점포 ID를 주소로 받지 않고 항상 gateway가 붙여 준 `X-Store-Id` 헤더를 쓴다. `/owner/**`에 이 헤더가 없으면 403 `STORE_NOT_LINKED`다.
+
+API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gateway가 이 경로를 넘기지 않으므로 **PC에서 서비스를 직접 띄웠을 때만** 열린다.
 
 ## 5. 데이터 모델
 
@@ -74,15 +76,27 @@ flowchart LR
 | `product` | id, product_code, name, category, price |
 | `inventory_lot` | id, store_id, product_id, expiry_date, quantity, reserved_quantity |
 | `reservation` | id, order_id, lot_id, quantity, status(RESERVED/CONFIRMED/RELEASED) |
+| `disposal` | id, store_id, lot_id, quantity, requested_by, status(REQUESTED/DONE/SKIPPED), created_at, processed_at |
 | `ledger` | id, store_id, lot_id, type(INBOUND/SALE/DISPOSE), quantity, ref_id, created_at |
 | `inbound` | id, shipment_id(유니크), store_id, received_at |
 | `outbox`, `processed_message` | common 모듈이 쓰는 표 |
+| `shedlock` | 스케줄러·Outbox 발행기 잠금 |
+
+상태가 바뀌는 길:
+
+- **reservation:** RESERVE로 `RESERVED` → CONFIRM이면 `CONFIRMED`(lot 실물·예약 감소, 원장 SALE) / RELEASE면 `RELEASED`(예약만 복원, 원장 없음). 확정·해제된 예약은 다시 바뀌지 않는다.
+- **disposal:** `POST /owner/disposals`로 `REQUESTED` → DISPOSE 쪽지 처리 때 `DONE`(lot 수량 감소, 원장 DISPOSE) / 폐기 가능 수량이 모자라면 `SKIPPED`(재고 그대로).
+- **ledger:** 실물이 바뀔 때만 한 줄 추가한다. 입고 `+n`(ref_id = shipmentId), 판매 `−n`(orderId), 폐기 `−n`(disposalId). lot별 합계 = `inventory_lot.quantity`.
+- **inventory_lot.status:** 스케줄러가 갱신하는 표시용(NORMAL → IMMINENT → EXPIRED). 판단에는 이 값을 쓰지 않고 그때마다 `expiry_date`와 지금 시각으로 계산한다. 판매(구매 가능 수량·예약)는 `expiry_date > 지금`인 lot만, 폐기 요청은 계산한 상태가 임박(24시간 이내)·경과인 lot만 받는다(정상 lot은 409 `NOT_DISPOSABLE`).
 
 테이블은 **Flyway 마이그레이션**으로 만든다. `src/main/resources/db/migration/V1__init.sql`부터 순서대로 두고, 앱이 뜰 때 Flyway가 아직 안 적용된 파일을 순서대로 실행한다. JPA `ddl-auto`로 테이블을 만들지 않는다. 한 번 적용된 파일은 고치지 않고 `V2__...`처럼 새 파일을 추가한다.
 
 ## 6. 운영에서 챙길 것
 
-- **스케줄러 중복 실행:** 파드가 2개라 ShedLock으로 한 파드만 돌게 한다.
+- **스케줄러 중복 실행:** 파드가 2개라 ShedLock으로 한 파드만 돌게 한다. dev는 `EXPIRY_CRON`이 없어 자정에만 돈다. 시연 때는 `EXPIRY_CRON=0 * * * * *`(1분)을 gitops values에 넣어 달라고 요청한다.
+- **실패한 쪽지:** 3번 실패하면 DLQ로 간다. 확인·재전송 절차는 [docs/실패-시나리오-절차.md](docs/실패-시나리오-절차.md).
+- **동시 예약 시험:** [docs/동시성-테스트-절차.md](docs/동시성-테스트-절차.md)와 `scripts/e01-*`.
+- **dev에서 한 번에 확인할 것:** [docs/dev-확인-절차.md](docs/dev-확인-절차.md).
 
 ## 7. 폴더 구조
 
@@ -106,11 +120,15 @@ inventory-service/
 │   ├── application-dev.yml            # 로그 레벨만 다름
 │   ├── application-prod.yml
 │   └── db/migration/                  # Flyway SQL. V1__init.sql 부터
-└── src/test/java/com/freshlink/inventory/
-    ├── InventoryServiceApplicationTests.java   # 애플리케이션이 뜨는지 (Testcontainers MySQL)
-    ├── TestcontainersConfiguration.java        # 테스트·로컬 실행용 MySQL 8.4 컨테이너
-    ├── TestInventoryServiceApplication.java    # IntelliJ에서 DB 없이 실행할 때 이걸 Run
-    └── common/error/GlobalExceptionHandlerTest.java   # 오류 응답 모양 (DB 없이)
+├── src/test/java/com/freshlink/inventory/
+│   ├── InventoryServiceApplicationTests.java   # 애플리케이션이 뜨는지 (Testcontainers MySQL)
+│   ├── TestcontainersConfiguration.java        # 테스트·로컬 실행용 MySQL 8.4 컨테이너
+│   ├── TestInventoryServiceApplication.java    # IntelliJ에서 DB 없이 실행할 때 이걸 Run
+│   ├── FixedClockConfiguration.java            # 지금 시각 고정(2026-10-25 12:00 KST). 쓰는 테스트끼리 컨테이너 하나를 같이 쓴다
+│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest  # 쪽지 처리·API·스케줄러
+│   └── common/error/GlobalExceptionHandlerTest.java   # 오류 응답 모양 (DB 없이)
+├── scripts/                           # 동시 예약 100건 투입(e01-reserve-100.ps1)·집계·정리 SQL
+└── docs/                              # dev 확인·실패 시나리오·동시성 시험 절차
 ```
 
 ## 7-1. 오류 처리
@@ -125,8 +143,6 @@ inventory-service/
 
 ## 8. dev 환경에서 실행하기
 
-> Spring 뼈대(의존성·`InventoryServiceApplication`·뜨는지 테스트)까지 들어 있다. 엔티티·API는 없다. Spring Cloud AWS SQS와 `com.freshlink:common` 의존성은 기능 작업 때 추가한다.
->
 > **DB 없이 IntelliJ에서 띄우기:** Docker Desktop을 켜고 `src/test/.../TestInventoryServiceApplication`을 Run 하면 Testcontainers가 MySQL 8.4 컨테이너를 띄워 연결한다. 환경 변수가 필요 없고, 끄면 컨테이너도 사라진다. 아래는 dev RDS에 붙일 때다.
 
 개발할 때도 AWS dev 환경의 RDS·SQS·Cognito를 그대로 쓴다. AWS 로그인, DB 포트 포워딩(SSM), 개인 큐 설정은 [개발 환경 접속 가이드](https://github.com/sesac-freshlink/.github/blob/main/docs/개발환경-접속.md)를 따른다.
@@ -140,6 +156,23 @@ export QUEUE_PREFIX=dev-<내 이름>-                     # 개인 큐
 ```
 
 logistics-simulator로 입고 쪽지를 보내고 `GET /owner/inventory/ledger`에서 '입고'가 찍히는지 확인한다.
+
+### 8-1. 환경 변수
+
+값과 비밀은 여기 적지 않는다. dev 클러스터 값은 gitops `envs/dev/inventory-service/values.yaml`, DB 비밀번호는 Secrets Manager에 있다.
+
+| 변수 | 쓰는 곳 | 없으면 |
+| --- | --- | --- |
+| `SPRING_PROFILES_ACTIVE` | 프로필 `dev`·`prod`(로그 레벨만 다르다) | 기본 프로필 |
+| `DB_URL` | MySQL 주소(`jdbc:mysql://…/inventory`) | 비어 있음. PC에서는 `TestInventoryServiceApplication`이 Testcontainers로 대신 붙는다 |
+| `DB_USERNAME` | DB 사용자 | `inventory_app` |
+| `DB_PASSWORD` | DB 비밀번호(비밀값) | 비어 있음 |
+| `QUEUE_PREFIX` | 큐 이름 앞부분. `app.queue.commands` = `<접두사>inventory-commands.fifo`, `app.queue.results` = `<접두사>inventory-results`. PC는 개인 큐(`dev-<이름>-`) | `dev-` |
+| `EXPIRY_CRON` | 유통기한 스케줄러 주기(`app.expiry.cron`, Spring cron 6자리, Asia/Seoul) | `0 0 0 * * *`(자정) |
+| `AWS_REGION` | SQS 리전 | `ap-northeast-2` |
+| `GITHUB_ACTOR`, `GITHUB_TOKEN` | **의존성을 받을 때.** 빌드와 `./gradlew bootRun`이 common 라이브러리를 GitHub Packages에서 받는다(`read:packages`). Gradle 캐시에 이미 있으면 실행 때는 쓰지 않는다 | 의존성 해석 실패(빌드·실행이 시작되지 않음) |
+
+PC에서 실행 구성을 만들 때는 위 값에 `AWS_PROFILE=freshlink-dev`를 더한다(접속 가이드 3장). 추적(Zipkin)과 JSON 로그는 클러스터에서 차트가 `MANAGEMENT_TRACING_EXPORT_ZIPKIN_*`, `LOGGING_STRUCTURED_FORMAT_CONSOLE`로 켠다.
 
 ## 9. 브랜치와 기여
 

@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.RequestParam;
 
+import io.swagger.v3.oas.annotations.Operation;
+
 @RestController
 @RequestMapping("/owner/inventory")
 public class InventoryController {
@@ -30,6 +32,7 @@ public class InventoryController {
         this.ledgerQueryService = ledgerQueryService;
     }
 
+    @Operation(summary = "S-10 점포 재고 목록 (점주 화면이 3초마다 조회)")
     @GetMapping
     public ResponseEntity<List<InventorySummaryResponse>> getInventory(
             @RequestHeader(STORE_ID_HEADER) Long storeId
@@ -39,6 +42,7 @@ public class InventoryController {
                 .body(inventoryQueryService.getInventory(storeId));
     }
 
+    @Operation(summary = "S-11 상품 하나의 lot 목록 (유통기한 빠른 순)")
     @GetMapping("/{productId}/lots")
     public ResponseEntity<List<InventoryLotResponse>> getLots(
             @RequestHeader(STORE_ID_HEADER) Long storeId,
@@ -49,6 +53,7 @@ public class InventoryController {
                 .body(inventoryQueryService.getLots(storeId, productId));
     }
 
+    @Operation(summary = "S-13 재고 변동 이력 (최신순 최근 100건, 선택 필터 type·productId·from·to)")
     @GetMapping("/ledger")
     public ResponseEntity<List<LedgerResponse>> getLedger(
             @RequestHeader(STORE_ID_HEADER) Long storeId,
@@ -72,6 +77,7 @@ public class InventoryController {
                 ));
     }
 
+    @Operation(summary = "S-30 임박(24시간 이내)·경과 lot 목록")
     @GetMapping("/expiring")
     public ResponseEntity<List<ExpiringInventoryResponse>> getExpiring(
             @RequestHeader(STORE_ID_HEADER) Long storeId

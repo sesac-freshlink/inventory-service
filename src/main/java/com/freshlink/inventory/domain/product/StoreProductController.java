@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.swagger.v3.oas.annotations.Operation;
+
 @RestController
 @RequestMapping("/stores/{storeId}/products")
 public class StoreProductController {
@@ -22,6 +24,7 @@ public class StoreProductController {
         this.inventoryQueryService = inventoryQueryService;
     }
 
+    @Operation(summary = "U-10 고객용 점포 상품 목록 (공개)")
     @GetMapping
     public ResponseEntity<List<StoreProductResponse>> getProducts(
             @PathVariable Long storeId
