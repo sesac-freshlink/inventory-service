@@ -62,8 +62,9 @@ class ReserveTest {
     void reservesFromEarliestExpiryLotFirstAcrossTwoLots() {
         long storeId = 1201L;
         long productId = insertProduct("P1201", "FEFO 우유", 1500L);
-        inbound(storeId, "P1201", 2, "2026-10-28T23:59:59+09:00");
+        // 기한이 늦은 lot을 먼저 입고해 lot ID 순서와 유통기한 순서를 엇갈리게 한다
         inbound(storeId, "P1201", 5, "2026-11-05T23:59:59+09:00");
+        inbound(storeId, "P1201", 2, "2026-10-28T23:59:59+09:00");
 
         inventoryCommandService.handle(reserve(1201L, storeId, productId, 3));
 
@@ -185,6 +186,26 @@ class ReserveTest {
                                 .map(lot -> tuple(lot.lotId(), lot.quantity()))
                                 .toList()
                 );
+    }
+
+    @Test
+    void resendUsesReservedLotProductEvenIfRetryHasDifferentProduct() {
+        long storeId = 1208L;
+        long productId = insertProduct("P1208", "재수신 원래 상품", 1500L);
+        long otherProductId = insertProduct("P1209", "재수신 다른 상품", 9900L);
+        inbound(storeId, "P1208", 5, "2026-10-30T23:59:59+09:00");
+
+        inventoryCommandService.handle(reserve(1208L, storeId, productId, 2));
+        inventoryCommandService.handle(reserve(1208L, 9999L, otherProductId, 2));
+
+        List<Map<String, Object>> outbox = outboxRows(1208L);
+        assertThat(outbox).hasSize(2);
+        ReservedMessage resent = (ReservedMessage) MessageJson.fromJson((String) outbox.get(1).get("payload"));
+        assertThat(resent.storeId()).isEqualTo(storeId);
+        assertThat(resent.productId()).isEqualTo(productId);
+        assertThat(resent.productName()).isEqualTo("재수신 원래 상품");
+        assertThat(resent.unitPrice()).isEqualTo(1500L);
+        assertThat(resent.quantity()).isEqualTo(2);
     }
 
     @Test

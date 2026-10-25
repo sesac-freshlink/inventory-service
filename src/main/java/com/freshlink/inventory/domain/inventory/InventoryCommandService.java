@@ -270,13 +270,15 @@ public class InventoryCommandService {
             return;
         }
 
-        Product product = productRepository.findById(message.productId())
-                .orElseThrow(() -> new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND));
-
         Map<Long, InventoryLot> lotsById = inventoryLotRepository
                 .findAllById(reservations.stream().map(Reservation::getLotId).toList())
                 .stream()
                 .collect(Collectors.toMap(InventoryLot::getId, Function.identity()));
+
+        // 점포·상품은 받은 쪽지가 아니라 이미 잡은 lot에서 읽는다. 잘못된 재수신이 와도 처음과 같은 결과를 보낸다
+        InventoryLot reservedLot = lotsById.get(reservations.getFirst().getLotId());
+        Product product = productRepository.findById(reservedLot.getProductId())
+                .orElseThrow(() -> new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND));
 
         List<ReservedLot> reservedLots = reservations.stream()
                 .map(reservation -> new ReservedLot(
@@ -292,8 +294,8 @@ public class InventoryCommandService {
 
         outboxWriter.save(resultsQueue, ReservedMessage.of(
                 message.orderId(),
-                message.storeId(),
-                message.productId(),
+                reservedLot.getStoreId(),
+                reservedLot.getProductId(),
                 product.getName(),
                 quantity,
                 product.getPrice(),
