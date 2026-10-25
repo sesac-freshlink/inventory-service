@@ -1,7 +1,7 @@
 -- E-01 동시 예약 시험 결과 확인 (T-22). 읽기만 한다.
 -- scripts/e01-reserve-100.ps1로 보낸 뒤 실행한다. 절차는 docs/동시성-테스트-절차.md.
--- 아래 다섯 값을 시험에 맞춘다. orderId 범위는 스크립트가 끝에 찍어 준다(기본 900001~900100).
--- @outbox_from은 투입 직전에 SELECT COALESCE(MAX(id), 0) FROM outbox; 로 받은 값이다.
+-- 아래 여섯 값을 시험에 맞춘다. orderId 범위는 스크립트가 끝에 찍어 준다(기본 900001~900100).
+-- @outbox_from·@reservation_from은 투입 직전에 받은 outbox·reservation의 마지막 id다(절차 문서 4장).
 -- 정리 SQL은 outbox를 지우지 않으므로, 이 값이 없으면 같은 orderId 범위로 다시 시험할 때 이전 결과가 섞인다.
 
 SET @store_id   = 1;
@@ -9,6 +9,7 @@ SET @product_id = 15;
 SET @order_from = 900001;
 SET @order_to   = 900100;
 SET @outbox_from = 0;
+SET @reservation_from = 0;
 
 -- 1. lot별 수량. 예약 성공 수 = 처음 재고 N이면 reserved_quantity 합이 N이다
 SELECT id                              AS lot_id,
@@ -22,13 +23,17 @@ WHERE store_id = @store_id
 ORDER BY expiry_date, id;
 
 -- 2. 시험 주문의 예약 상태별 건수 (lot 두 개에 걸친 주문은 행이 2개라 주문 수는 DISTINCT로 센다)
-SELECT status,
-       COUNT(DISTINCT order_id) AS orders,
-       COUNT(*)                 AS reservation_rows,
-       SUM(quantity)            AS quantity
-FROM reservation
-WHERE order_id BETWEEN @order_from AND @order_to
-GROUP BY status;
+SELECT r.status,
+       COUNT(DISTINCT r.order_id) AS orders,
+       COUNT(*)                   AS reservation_rows,
+       SUM(r.quantity)            AS quantity
+FROM reservation r
+JOIN inventory_lot l ON l.id = r.lot_id
+WHERE r.id > @reservation_from
+  AND r.order_id BETWEEN @order_from AND @order_to
+  AND l.store_id = @store_id
+  AND l.product_id = @product_id
+GROUP BY r.status;
 
 -- 3. 결과 쪽지 건수와 처리 시간. created_at은 쪽지를 처리한 트랜잭션의 DB 시각이다
 --    성공 수 = RESERVED 주문 수, 실패 수 = RESERVE_FAILED 주문 수, 둘의 합 = 보낸 건수
