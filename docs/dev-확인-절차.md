@@ -46,13 +46,16 @@ function Send-Cmd([string]$json, [long]$storeId = 1) {
     aws sqs send-message --queue-url $cmd --message-body ("file://" + ($file -replace "\\", "/")) --message-group-id "$storeId" --message-deduplication-id $id --query MessageId --output text
 }
 
-# 개인 결과 큐에 쌓인 RESERVED·RESERVE_FAILED를 본다(지우지 않는다). 쪽지 처리는 비동기라 최대 1분 기다린다
-function Show-Results {
+# 개인 결과 큐에서 그 주문의 RESERVED·RESERVE_FAILED만 골라 본다(지우지 않는다).
+# 개인 결과 큐는 아무도 소비하지 않아 이전 결과가 쌓여 있으므로 orderId로 거른다. 쪽지 처리는 비동기라 최대 1분 기다린다
+function Show-Results([long]$orderId) {
     for ($i = 0; $i -lt 6; $i++) {
         $bodies = aws sqs receive-message --queue-url $res --max-number-of-messages 10 --visibility-timeout 0 --wait-time-seconds 10 --query "Messages[].Body" --output json | ConvertFrom-Json
-        if ($bodies) { return $bodies }
+        $found = @($bodies | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json } |
+            Where-Object { $_.orderId -eq $orderId -and $_.type -in @("RESERVED", "RESERVE_FAILED") })
+        if ($found.Count -gt 0) { return $found }
     }
-    Write-Warning "1분 동안 결과 쪽지가 없다. PC inventory 로그와 QUEUE_PREFIX를 확인한다"
+    Write-Warning "1분 동안 orderId=$orderId 결과가 없다. PC inventory 로그와 QUEUE_PREFIX를 확인한다. 큐에 쪽지가 많으면 10개씩만 보여 못 찾을 수 있다"
 }
 ```
 
@@ -74,7 +77,7 @@ $exp = (Get-Date).AddMonths(2).ToString("yyyy-MM-dd")     # 실행일보다 뒤�
 "exp = $exp, ship = $ship"
 Send-Cmd ('{"type":"INBOUND","storeId":1,"shipmentId":"' + $ship + '","items":[{"productCode":"P015","quantity":10,"expiryDate":"' + $exp + '"}]}')
 Send-Cmd '{"type":"RESERVE","orderId":800001,"storeId":1,"productId":15,"quantity":3}'
-Show-Results     # RESERVED, orderId 800001, unitPrice·productName·lots 포함
+Show-Results 800001     # RESERVED, unitPrice·productName·lots 포함
 Send-Cmd '{"type":"CONFIRM","orderId":800001,"storeId":1}'
 ```
 
@@ -105,24 +108,29 @@ SELECT COUNT(*) FROM ledger WHERE ref_id = '800002';                    -- 0 (�
 
 ```powershell
 $ship2 = "SHP-DEVCHK-EXP-" + (Get-Date -Format "yyyyMMddHHmmss")
-Send-Cmd ('{"type":"INBOUND","storeId":1,"shipmentId":"' + $ship2 + '","items":[{"productCode":"P016","quantity":5,"expiryDate":"2026-10-01"}]}')
+$expired = (Get-Date).AddDays(-30).ToString("yyyy-MM-dd")     # 늘 지난 날짜. 아래 SQL의 <$expired>에 이 값을 넣는다
+"expired = $expired"
+Send-Cmd ('{"type":"INBOUND","storeId":1,"shipmentId":"' + $ship2 + '","items":[{"productCode":"P016","quantity":5,"expiryDate":"' + $expired + '"}]}')
 ```
 
 ```sql
 SELECT id, quantity FROM inventory_lot
-WHERE store_id = 1 AND product_id = 16 AND expiry_date = '2026-10-01 23:59:59';   -- 아래 lotId에 넣는다. 행이 나올 때까지 다시 조회한다
+WHERE store_id = 1 AND product_id = 16 AND expiry_date = '<$expired> 23:59:59';   -- 아래 $lotId에 넣는다. 행이 나올 때까지 다시 조회한다
 ```
 
 PC inventory에 직접 요청한다. gateway 대신 헤더를 손으로 붙인다(`X-User-Id`는 아무 UUID).
 
 ```powershell
-$lotId = <위 id>
+$lotId = 0     # ← 위 SQL의 id로 바꾼 뒤 실행한다
+if ($lotId -le 0) { throw "lotId를 위 SQL 결과로 바꾼다" }
 try {
     $r = Invoke-WebRequest -UseBasicParsing -Method Post -Uri http://localhost:8080/owner/disposals `
         -Headers @{ "X-Store-Id" = "1"; "X-User-Id" = "00000000-0000-0000-0000-000000000001" } `
         -ContentType "application/json" -Body ('{"lotId":' + $lotId + ',"quantity":3}')
     "status = $($r.StatusCode)"     # 202여야 한다
     $r.Content                       # { disposalId, lotId, quantity }
+    $disposalId = ($r.Content | ConvertFrom-Json).disposalId
+    "disposalId = $disposalId"       # 아래 SQL의 <$disposalId>에 넣는다
 } catch {
     # 4xx는 예외로 온다. 정상 lot이면 409, 다른 점포 헤더면 403
     "status = $($_.Exception.Response.StatusCode.value__)"
@@ -132,10 +140,17 @@ try {
 202는 접수만 뜻한다. Outbox 발행기가 DISPOSE를 같은 개인 큐로 보내고 PC inventory가 다시 받아 처리한 뒤에 재고가 바뀐다. 아래 첫 조회가 `REQUESTED`면 몇 초 뒤 다시 조회하고, `DONE`(또는 `SKIPPED`)이 된 뒤에 나머지를 본다.
 
 ```sql
-SELECT id, status, processed_at FROM disposal ORDER BY id DESC LIMIT 1;                  -- DONE
-SELECT quantity FROM inventory_lot WHERE id = <lotId>;                                     -- 2
-SELECT type, quantity, ref_id FROM ledger WHERE lot_id = <lotId> ORDER BY id;              -- INBOUND +5, DISPOSE -3
+SELECT id, status, processed_at FROM disposal WHERE id = <$disposalId>;   -- DONE 또는 SKIPPED (REQUESTED면 다시 조회)
+SELECT quantity FROM inventory_lot WHERE id = <$lotId>;
+SELECT type, quantity, ref_id FROM ledger WHERE lot_id = <$lotId> ORDER BY id;
 ```
+
+| disposal.status | lot quantity | ledger |
+|---|---|---|
+| `DONE` | 2 | INBOUND +5, DISPOSE −3 (`ref_id` = disposalId) |
+| `SKIPPED` | 5 (그대로) | INBOUND +5만, DISPOSE 없음. 요청 뒤 처리 전에 예약이 폐기 가능 수량을 줄인 경우다 |
+
+`SKIPPED`가 나왔으면 그 사이 다른 예약이 들어왔는지(`reservation`) 보고, 8번에 쓸 경과 lot 수량도 다시 확인한다.
 
 ## 5. 유통기한 스케줄러 1분 주기 (T-18)
 
@@ -181,7 +196,7 @@ dev 클러스터는 공용 큐(`dev-`)를 쓴다. PC inventory는 개인 큐(`de
 
 시연 전에 아래 문구로 요청한다.
 
-> gitops `envs/dev/inventory-service/values.yaml`의 `env`에 `EXPIRY_CRON: "0 * * * * *"`를 추가해 주세요. 유통기한 스케줄러를 시연 때 1분마다 돌리려는 것입니다. 시연이 끝나면 지워도 됩니다(기본은 자정). ShedLock(lotStatusJob)이 있어 파드 2개여도 한 번만 돕니다.
+> gitops `envs/dev/inventory-service/values.yaml`의 `env`에 `EXPIRY_CRON: "0 * * * * *"`를 추가해 주세요. 유통기한 스케줄러를 시연 때 1분마다 돌리려는 것입니다. 시연이 끝나면 지워도 됩니다(기본은 자정). ShedLock(lotStatusJob)이 있어 파드 2개여도 한 주기에 한 번만 실행됩니다.
 
 ## 10. 끄기
 
