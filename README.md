@@ -101,6 +101,12 @@ API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gatew
 - **실패한 쪽지:** 3번 실패하면 DLQ로 간다. 확인·재전송 절차는 [docs/실패-시나리오-절차.md](docs/실패-시나리오-절차.md).
 - **동시 예약 시험:** [docs/동시성-테스트-절차.md](docs/동시성-테스트-절차.md)와 `scripts/e01-*`.
 - **dev에서 한 번에 확인할 것:** [docs/dev-확인-절차.md](docs/dev-확인-절차.md).
+- **쪽지 처리 지표:** `/actuator/prometheus`에 아래 두 가지가 나온다. Grafana에서 보는 식은 [docs/동시성-테스트-절차.md](docs/동시성-테스트-절차.md) 5-1.
+
+| 지표 | 태그 | 뜻 |
+| --- | --- | --- |
+| `inventory_command_seconds_count`·`_sum`·`_max`·`_bucket` | `type`(INBOUND·RESERVE·CONFIRM·RELEASE·DISPOSE·UNKNOWN), `result`(processed·duplicate·failed) | 쪽지 한 번 처리에 걸린 시간. `_count`가 건수다. duplicate는 같은 messageId를 다시 받아 건너뛴 것, failed는 예외로 되돌린 것(SQS가 다시 보내므로 시도마다 센다) |
+| `inventory_outbox_unpublished` | 없음 | 아직 보내지 않은 결과 쪽지 수. 0 근처가 정상이고 계속 늘면 outbox 발행이 막힌 것 |
 
 ## 7. 폴더 구조
 
@@ -112,7 +118,8 @@ inventory-service/
 │   ├── common/                        # 도메인과 상관없는 공통 코드
 │   │   ├── config/       # SQS, ShedLock, Swagger 설정
 │   │   ├── error/        # InventoryErrorCode(enum), GlobalExceptionHandler
-│   │   └── messaging/    # 큐 리스너, 결과 쪽지 발행
+│   │   ├── messaging/    # 큐 리스너, 결과 쪽지 발행
+│   │   └── metrics/      # 쪽지 처리·미발행 outbox 지표(Micrometer)
 │   └── domain/                        # 도메인별 엔티티·서비스·API
 │       ├── product/      # 상품, 고객용 점포 상품 목록
 │       ├── inventory/    # lot, 예약, 원장, 재고 조회

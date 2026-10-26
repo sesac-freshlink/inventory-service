@@ -78,40 +78,30 @@ public class InventoryCommandService {
         this.clock = clock;
     }
 
+    /** 같은 messageId를 이미 처리했으면 아무것도 바꾸지 않고 DUPLICATE */
     @Transactional
-    public void handle(BaseMessage message) {
+    public CommandResult handle(BaseMessage message) {
         if (!processedMessages.markIfNew(message.messageId())) {
-            return;
+            return CommandResult.DUPLICATE;
         }
 
         if (message instanceof InboundMessage inboundMessage) {
             handleInbound(inboundMessage);
-            return;
-        }
-
-        if (message instanceof ReserveMessage reserveMessage) {
+        } else if (message instanceof ReserveMessage reserveMessage) {
             handleReserve(reserveMessage);
-            return;
-        }
-
-        if (message instanceof ConfirmMessage confirmMessage) {
+        } else if (message instanceof ConfirmMessage confirmMessage) {
             handleConfirm(confirmMessage);
-            return;
-        }
-
-        if (message instanceof ReleaseMessage releaseMessage) {
+        } else if (message instanceof ReleaseMessage releaseMessage) {
             handleRelease(releaseMessage);
-            return;
-        }
-
-        if (message instanceof DisposeMessage disposeMessage) {
+        } else if (message instanceof DisposeMessage disposeMessage) {
             handleDispose(disposeMessage);
-            return;
+        } else {
+            throw new IllegalArgumentException(
+                    "지원하지 않는 inventory command type: " + message.type()
+            );
         }
 
-        throw new IllegalArgumentException(
-                "지원하지 않는 inventory command type: " + message.type()
-        );
+        return CommandResult.PROCESSED;
     }
 
     private void handleInbound(InboundMessage message) {

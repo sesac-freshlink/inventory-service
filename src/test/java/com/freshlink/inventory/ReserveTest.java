@@ -8,6 +8,7 @@ import com.freshlink.common.message.result.ReserveFailReason;
 import com.freshlink.common.message.result.ReserveFailedMessage;
 import com.freshlink.common.message.result.ReservedLot;
 import com.freshlink.common.message.result.ReservedMessage;
+import com.freshlink.inventory.domain.inventory.CommandResult;
 import com.freshlink.inventory.domain.inventory.InventoryCommandService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -133,8 +134,8 @@ class ReserveTest {
         inbound(storeId, "P1204", 5, "2026-10-30T23:59:59+09:00");
 
         ReserveMessage message = reserve(1204L, storeId, productId, 2);
-        inventoryCommandService.handle(message);
-        inventoryCommandService.handle(message);
+        assertThat(inventoryCommandService.handle(message)).isEqualTo(CommandResult.PROCESSED);
+        assertThat(inventoryCommandService.handle(message)).isEqualTo(CommandResult.DUPLICATE);
 
         assertThat(reservationCount(1204L)).isEqualTo(1);
         assertThat(reservedQuantitySum(storeId)).isEqualTo(2);
