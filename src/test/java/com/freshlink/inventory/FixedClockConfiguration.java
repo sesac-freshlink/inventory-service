@@ -10,8 +10,8 @@ import java.time.ZoneId;
 
 /**
  * 지금 시각을 2026-10-25 12:00 KST로 고정한다.
- * 이 설정을 쓰는 테스트(ReserveTest, DisposalTest, LotStatusTest)는 설정을 똑같이 맞춰 Spring 컨텍스트와
- * MySQL 컨테이너 하나를 같이 쓴다. 클래스마다 설정이 다르면 컨테이너가 따로 떠서 PC에서 시작 시간 초과가 난다.
+ * 이 설정을 쓰는 테스트는 설정을 똑같이 맞춰 Spring 컨텍스트 하나를 같이 쓴다. 클래스마다 설정이 다르면 앱이 한 번 더 떠서
+ * 테스트가 느려진다. MySQL 컨테이너는 컨텍스트와 상관없이 하나다(TestcontainersConfiguration).
  */
 @TestConfiguration(proxyBeanMethods = false)
 public class FixedClockConfiguration {

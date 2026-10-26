@@ -47,7 +47,7 @@ class DisposalTest {
     static final String NORMAL = "2027-12-31T23:59:59+09:00";
     static final String USER_ID = "11111111-2222-3333-4444-555555555555";
 
-    // @AutoConfigureMockMvc를 붙이면 컨텍스트가 갈라져 MySQL 컨테이너가 하나 더 뜬다. 같은 컨텍스트로 직접 만든다
+    // @AutoConfigureMockMvc를 붙이면 컨텍스트가 갈라져 앱이 한 번 더 뜬다. 같은 컨텍스트로 직접 만든다
     @Autowired
     WebApplicationContext webApplicationContext;
 
