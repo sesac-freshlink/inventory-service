@@ -307,13 +307,33 @@ class InventoryQueryServiceTest {
     }
 
     @Test
-    void 점포lot이_하나도_없으면_고객_상품목록은_빈배열이다() {
+    void 점포lot이_하나도_없어도_고객_상품목록은_상품전체를_품절로_반환한다() {
+        Product ramen = mock(Product.class);
+        when(ramen.getId()).thenReturn(15L);
+        when(ramen.getName()).thenReturn("매운 컵라면 115g");
+        when(ramen.getCategory()).thenReturn("라면");
+        when(ramen.getPrice()).thenReturn(1700L);
+
+        Product water = mock(Product.class);
+        when(water.getId()).thenReturn(2L);
+        when(water.getName()).thenReturn("생수 500ml");
+        when(water.getCategory()).thenReturn("음료");
+        when(water.getPrice()).thenReturn(1000L);
+
         when(inventoryLotRepository.findByStoreId(999L))
                 .thenReturn(List.of());
+
+        when(productRepository.findAll())
+                .thenReturn(List.of(ramen, water));
 
         List<StoreProductResponse> result =
                 service.getStoreProducts(999L);
 
-        assertThat(result).isEmpty();
+        assertThat(result).hasSize(2);
+        assertThat(result)
+                .allSatisfy(response -> {
+                    assertThat(response.availableQuantity()).isZero();
+                    assertThat(response.soldOut()).isTrue();
+                });
     }
 }
