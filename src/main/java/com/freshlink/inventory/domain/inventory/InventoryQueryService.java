@@ -237,12 +237,9 @@ public class InventoryQueryService {
     public List<StoreProductResponse> getStoreProducts(Long storeId) {
         LocalDateTime now = LocalDateTime.now(clock);
 
+        // 입고가 한 번도 없는 점포도 상품 30개를 전부 품절로 내린다(명세 4장 U-10). lot이 없는 점포와 없는 점포를 구분하지 않는다
         List<InventoryLot> lots =
                 inventoryLotRepository.findByStoreId(storeId);
-
-        if (lots.isEmpty()) {
-            return List.of();
-        }
 
         Map<Long, List<InventoryLot>> lotsByProduct =
                 lots.stream()

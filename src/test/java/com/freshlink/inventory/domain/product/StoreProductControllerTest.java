@@ -64,13 +64,24 @@ class StoreProductControllerTest {
     }
 
     @Test
-    void 점포lot이_없으면_빈배열로_응답한다() throws Exception {
+    void 입고가_없는_점포도_상품전체를_품절로_응답한다() throws Exception {
         when(inventoryQueryService.getStoreProducts(999L))
-                .thenReturn(List.of());
+                .thenReturn(List.of(
+                        new StoreProductResponse(
+                                2L,
+                                "생수 500ml",
+                                "음료",
+                                1000L,
+                                0,
+                                true
+                        )
+                ));
 
         mockMvc.perform(get("/stores/999/products"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
-                .andExpect(jsonPath("$").isEmpty());
+                .andExpect(jsonPath("$[0].productId").value(2))
+                .andExpect(jsonPath("$[0].availableQuantity").value(0))
+                .andExpect(jsonPath("$[0].soldOut").value(true));
     }
 }
