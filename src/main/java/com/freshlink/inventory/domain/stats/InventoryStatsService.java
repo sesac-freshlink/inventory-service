@@ -61,8 +61,10 @@ public class InventoryStatsService {
 
         Map<Long, Map<LedgerType, Integer>> byProduct = new HashMap<>();
         for (ProductLedgerSum sum : sums) {
+            // 판매·폐기는 음수로 저장돼 있어 양수로 바꾼다. 조정은 늘고 준 것을 합친 값(±) 그대로 둔다
+            long quantity = sum.type() == LedgerType.ADJUST ? sum.quantity() : Math.abs(sum.quantity());
             byProduct.computeIfAbsent(sum.productId(), id -> new EnumMap<>(LedgerType.class))
-                    .merge(sum.type(), Math.toIntExact(Math.abs(sum.quantity())), Integer::sum);
+                    .merge(sum.type(), Math.toIntExact(quantity), Integer::sum);
         }
 
         Map<Long, Product> products = new HashMap<>();
@@ -80,8 +82,10 @@ public class InventoryStatsService {
         int inbound = rows.stream().mapToInt(ProductStatsResponse::inboundQuantity).sum();
         int sold = rows.stream().mapToInt(ProductStatsResponse::soldQuantity).sum();
         int disposed = rows.stream().mapToInt(ProductStatsResponse::disposedQuantity).sum();
+        int adjusted = rows.stream().mapToInt(ProductStatsResponse::adjustedQuantity).sum();
 
-        return new InventoryStatsResponse(start, end, inbound, sold, disposed, disposalRate(sold, disposed), rows);
+        return new InventoryStatsResponse(
+                start, end, inbound, sold, disposed, adjusted, disposalRate(sold, disposed), rows);
     }
 
     private ProductStatsResponse toRow(Product product, Map<LedgerType, Integer> quantities) {
@@ -100,6 +104,7 @@ public class InventoryStatsService {
                 quantities.getOrDefault(LedgerType.INBOUND, 0),
                 sold,
                 disposed,
+                quantities.getOrDefault(LedgerType.ADJUST, 0),
                 disposalRate(sold, disposed)
         );
     }
