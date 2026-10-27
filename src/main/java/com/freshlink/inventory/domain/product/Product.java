@@ -27,6 +27,10 @@ public class Product {
     @Column(nullable = false)
     private Long price;
 
+    /** 상품 이미지 주소(V5). 없으면 null. 화면이 자리표시를 보여 준다 */
+    @Column(name = "image_url", length = 300)
+    private String imageUrl;
+
     protected Product() {
     }
 
@@ -48,5 +52,9 @@ public class Product {
 
     public Long getPrice() {
         return price;
+    }
+
+    public String getImageUrl() {
+        return imageUrl;
     }
 }

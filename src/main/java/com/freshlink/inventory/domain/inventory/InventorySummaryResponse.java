@@ -12,6 +12,7 @@ public record InventorySummaryResponse(
         String name,
         String category,
         Long price,
+        String imageUrl,
         int totalQuantity,
         int reservedQuantity,
         int availableQuantity,

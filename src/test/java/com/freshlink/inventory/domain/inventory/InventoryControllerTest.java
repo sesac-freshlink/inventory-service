@@ -42,6 +42,7 @@ class InventoryControllerTest {
                 "매운 컵라면 115g",
                 "라면",
                 1700L,
+                "https://img.example/P015.jpg",
                 20,
                 1,
                 19,
@@ -63,6 +64,7 @@ class InventoryControllerTest {
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$[0].productId").value(15))
                 .andExpect(jsonPath("$[0].productCode").value("P015"))
+                .andExpect(jsonPath("$[0].imageUrl").value("https://img.example/P015.jpg"))
                 .andExpect(jsonPath("$[0].availableQuantity").value(19))
                 .andExpect(jsonPath("$[0].nearestExpiry")
                         .value("2026-10-20T23:59:59+09:00"))
