@@ -1,8 +1,8 @@
 package com.freshlink.inventory;
 
 import io.awspring.cloud.sqs.operations.SqsTemplate;
+import org.springframework.boot.jdbc.autoconfigure.JdbcConnectionDetails;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.DockerImageName;
@@ -13,24 +13,46 @@ import static org.mockito.Mockito.mock;
 class TestcontainersConfiguration {
 
 	/**
-	 * 모든 테스트가 같이 쓰는 MySQL 컨테이너 하나.
-	 * 빈 메서드 안에서 만들면 Spring 컨텍스트마다 하나씩 떠서(지금 컨텍스트 2개) PC Docker 메모리(3GB)가 모자라
-	 * 연결 시간 초과가 난다. 테스트끼리는 점포 ID·상품 코드·주문 ID를 따로 써서 같은 DB를 써도 섞이지 않는다.
-	 * 이미 떠 있으면 다음 컨텍스트의 start()는 아무것도 하지 않고, 테스트 JVM이 끝나면 Testcontainers가 지운다.
+	 * 모든 테스트가 같이 쓰는 MySQL 컨테이너 하나. 테스트 JVM이 뜰 때 시작하고 JVM이 끝나면 Testcontainers(Ryuk)가 지운다.
+	 *
+	 * <p>컨테이너를 {@code @Bean}으로 등록하면 Spring Boot가 컨텍스트마다 하나씩 띄우고(지금 컨텍스트 2개), 컨텍스트가 닫힐 때
+	 * 컨테이너도 멈춘다. 컨테이너 2개는 PC Docker 메모리(3GB)가 모자라 연결 시간 초과가 나고, static 하나를 빈으로 내놓으면
+	 * 한 컨텍스트가 닫힐 때 다른 컨텍스트가 쓰는 컨테이너가 멈춘다. 그래서 컨테이너는 Spring 밖에서 관리하고
+	 * Spring에는 연결 정보({@link JdbcConnectionDetails})만 준다.
+	 *
+	 * <p>테스트끼리는 점포 ID·상품 코드·주문 ID를 따로 써서 같은 DB를 써도 섞이지 않는다.
 	 */
 	private static final MySQLContainer MYSQL = new MySQLContainer(DockerImageName.parse("mysql:8.4"))
 			// 테스트 데이터가 작아 성능 통계와 큰 버퍼가 필요 없다. 컨테이너 메모리를 줄인다
 			.withCommand("--performance-schema=OFF", "--innodb-buffer-pool-size=32M");
 
+	static {
+		MYSQL.start();
+	}
+
 	/**
-	 * 테스트의 데이터베이스 연결에 사용할 MySQL 컨테이너를 돌려준다.
+	 * 공유 컨테이너의 연결 정보. DataSource 자동 설정이 application.yml의 DB_URL 대신 이것을 쓴다.
 	 *
-	 * @return 모든 컨텍스트가 같이 쓰는 MySQL 8.4 테스트 컨테이너
+	 * @return 컨테이너의 JDBC 주소·계정
 	 */
 	@Bean
-	@ServiceConnection
-	MySQLContainer mysqlContainer() {
-		return MYSQL;
+	JdbcConnectionDetails mysqlConnectionDetails() {
+		return new JdbcConnectionDetails() {
+			@Override
+			public String getJdbcUrl() {
+				return MYSQL.getJdbcUrl();
+			}
+
+			@Override
+			public String getUsername() {
+				return MYSQL.getUsername();
+			}
+
+			@Override
+			public String getPassword() {
+				return MYSQL.getPassword();
+			}
+		};
 	}
 
 	/**
