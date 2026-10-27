@@ -35,4 +35,25 @@ public interface LedgerRepository extends JpaRepository<Ledger, Long> {
             @Param("toExclusive") LocalDateTime toExclusive,
             Pageable pageable
     );
+
+    /**
+     * S-42 기간 안의 원장을 상품·종류별로 더한다. 판매·폐기는 음수 그대로 더해진다.
+     * 점포·기간 조건은 idx_ledger_store_created 인덱스를 탄다
+     */
+    @Query("""
+            select new com.freshlink.inventory.domain.inventory.ProductLedgerSum(
+                lot.productId, ledger.type, sum(ledger.quantity)
+            )
+            from Ledger ledger
+            join InventoryLot lot on lot.id = ledger.lotId
+            where ledger.storeId = :storeId
+              and ledger.createdAt >= :from
+              and ledger.createdAt < :toExclusive
+            group by lot.productId, ledger.type
+            """)
+    List<ProductLedgerSum> sumByProductAndType(
+            @Param("storeId") Long storeId,
+            @Param("from") LocalDateTime from,
+            @Param("toExclusive") LocalDateTime toExclusive
+    );
 }
