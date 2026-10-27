@@ -70,6 +70,9 @@ class InventoryStatsTest {
         handle(new ReserveMessage(UUID.randomUUID().toString(), NOW, 4201L, storeId, ramen, 3));
         handle(new ConfirmMessage(UUID.randomUUID().toString(), NOW, 4201L, storeId));
         ledger(storeId, milkLot, "DISPOSE", -2, NOW.toLocalDateTime());
+        // 수동 조정은 늘고 준 것을 합친 값으로 따로 센다. 폐기율에는 넣지 않는다
+        ledger(storeId, ramenLot, "ADJUST", 2, NOW.toLocalDateTime());
+        ledger(storeId, ramenLot, "ADJUST", -3, NOW.toLocalDateTime());
         // 기간 밖(10/10) 판매와 다른 점포 원장은 빠져야 한다
         ledger(storeId, ramenLot, "SALE", -5, LocalDateTime.of(2026, 10, 10, 9, 0));
         long otherLot = inbound(4202L, "P4201", 7);
@@ -82,6 +85,7 @@ class InventoryStatsTest {
                 .andExpect(jsonPath("$.inboundQuantity").value(16))
                 .andExpect(jsonPath("$.soldQuantity").value(3))
                 .andExpect(jsonPath("$.disposedQuantity").value(2))
+                .andExpect(jsonPath("$.adjustedQuantity").value(-1))
                 .andExpect(jsonPath("$.disposalRate").value(0.4))
                 .andExpect(jsonPath("$.products.length()").value(2))
                 .andExpect(jsonPath("$.products[0].productId").value(milk))
@@ -90,6 +94,7 @@ class InventoryStatsTest {
                 .andExpect(jsonPath("$.products[0].disposalRate").value(1.0))
                 .andExpect(jsonPath("$.products[1].productId").value(ramen))
                 .andExpect(jsonPath("$.products[1].soldQuantity").value(3))
+                .andExpect(jsonPath("$.products[1].adjustedQuantity").value(-1))
                 .andExpect(jsonPath("$.products[1].disposalRate").value(0.0));
 
         // 기간을 넓히면 10/10 판매 5개가 더해진다

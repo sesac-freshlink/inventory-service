@@ -10,6 +10,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Version;
 
 import java.time.LocalDateTime;
 
@@ -60,6 +61,15 @@ public class InventoryLot {
     @LastModifiedDate
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    /**
+     * 낙관적 락(S-14). Hibernate가 UPDATE마다 1 올리고 {@code WHERE version = 읽은 값}을 붙인다.
+     * 읽은 뒤 다른 트랜잭션이 먼저 고쳤으면 0행이 바뀌어 OptimisticLockingFailureException이 난다.
+     * 쪽지끼리는 FIFO 그룹이 줄 세우므로 겹치지 않는다. 겹칠 수 있는 건 쪽지를 거치지 않는 수동 조정뿐이다
+     */
+    @Version
+    @Column(nullable = false)
+    private Long version;
 
     protected InventoryLot() {
     }
@@ -126,6 +136,19 @@ public class InventoryLot {
         this.quantity -= quantity;
     }
 
+    /** 수동 조정(S-14). 늘리거나 줄인다. 줄일 때 예약이 잡은 수량 아래로는 내릴 수 없다 */
+    public void adjust(int delta) {
+        if (delta == 0 || quantity + delta < reservedQuantity) {
+            throw new IllegalStateException(
+                    "조정 뒤 수량이 예약 수량보다 적다: lotId=" + id
+                            + ", quantity=" + quantity
+                            + ", delta=" + delta
+                            + ", reserved=" + reservedQuantity
+            );
+        }
+        this.quantity += delta;
+    }
+
     private void checkReserved(int quantity) {
         if (quantity < 1 || quantity > reservedQuantity) {
             throw new IllegalStateException(
@@ -170,5 +193,9 @@ public class InventoryLot {
 
     public LocalDateTime getUpdatedAt() {
         return updatedAt;
+    }
+
+    public Long getVersion() {
+        return version;
     }
 }

@@ -13,6 +13,7 @@ public record InventoryStatsResponse(
         int inboundQuantity,
         int soldQuantity,
         int disposedQuantity,
+        int adjustedQuantity,
         Double disposalRate,
         List<ProductStatsResponse> products
 ) {

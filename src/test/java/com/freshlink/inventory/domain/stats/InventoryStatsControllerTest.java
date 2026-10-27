@@ -34,8 +34,8 @@ class InventoryStatsControllerTest {
         LocalDate from = LocalDate.of(2026, 10, 19);
         LocalDate to = LocalDate.of(2026, 10, 25);
         when(inventoryStatsService.getStats(1L, from, to)).thenReturn(new InventoryStatsResponse(
-                from, to, 16, 3, 2, 0.4,
-                List.of(new ProductStatsResponse(12L, "P012", "흰 우유 500ml", "유제품", 6, 0, 2, 1.0))
+                from, to, 16, 3, 2, -1, 0.4,
+                List.of(new ProductStatsResponse(12L, "P012", "흰 우유 500ml", "유제품", 6, 0, 2, -1, 1.0))
         ));
 
         mockMvc.perform(get("/owner/inventory/stats")
@@ -47,7 +47,8 @@ class InventoryStatsControllerTest {
                 .andExpect(jsonPath("$.from").value("2026-10-19"))
                 .andExpect(jsonPath("$.disposalRate").value(0.4))
                 .andExpect(jsonPath("$.products[0].name").value("흰 우유 500ml"))
-                .andExpect(jsonPath("$.products[0].disposedQuantity").value(2));
+                .andExpect(jsonPath("$.products[0].disposedQuantity").value(2))
+                .andExpect(jsonPath("$.products[0].adjustedQuantity").value(-1));
     }
 
     @Test

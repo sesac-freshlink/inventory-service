@@ -94,6 +94,22 @@ public class Ledger {
         return ledger;
     }
 
+    /** 수동 조정. 수량은 증감 그대로 저장한다(늘리면 +, 줄이면 −) */
+    public static Ledger adjust(
+            Long storeId,
+            Long lotId,
+            int delta,
+            String adjustmentId
+    ) {
+        Ledger ledger = new Ledger();
+        ledger.storeId = storeId;
+        ledger.lotId = lotId;
+        ledger.type = LedgerType.ADJUST;
+        ledger.quantity = delta;
+        ledger.refId = adjustmentId;
+        return ledger;
+    }
+
     public Long getId() {
         return id;
     }
