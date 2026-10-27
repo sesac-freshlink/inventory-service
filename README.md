@@ -104,6 +104,7 @@ API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gatew
 - **스케줄러 중복 실행:** 파드가 2개라 ShedLock으로 한 파드만 돌게 한다. dev는 `EXPIRY_CRON`이 없어 자정에만 돈다. 시연 때는 `EXPIRY_CRON=0 * * * * *`(1분)을 gitops values에 넣어 달라고 요청한다.
 - **실패한 쪽지:** 3번 실패하면 DLQ로 간다. 확인·재전송 절차는 [docs/실패-시나리오-절차.md](docs/실패-시나리오-절차.md).
 - **동시 예약 시험:** [docs/동시성-테스트-절차.md](docs/동시성-테스트-절차.md)와 `scripts/e01-*`.
+- **왜 FIFO 그룹과 낙관적 락인가:** [docs/동시성-설계-FIFO와-낙관적-락.md](docs/동시성-설계-FIFO와-낙관적-락.md). 줄을 세우지 않으면 무엇이 깨지는지 `FifoExperimentTest`로 직접 본다.
 - **dev에서 한 번에 확인할 것:** [docs/dev-확인-절차.md](docs/dev-확인-절차.md).
 - **쪽지 처리 지표:** `/actuator/prometheus`에 아래 두 가지가 나온다. Grafana에서 보는 식은 [docs/동시성-테스트-절차.md](docs/동시성-테스트-절차.md) 5-1.
 
@@ -143,7 +144,7 @@ inventory-service/
 │   ├── TestcontainersConfiguration.java        # 테스트·로컬 실행용 MySQL 8.4 컨테이너
 │   ├── TestInventoryServiceApplication.java    # IntelliJ에서 DB 없이 실행할 때 이걸 Run
 │   ├── FixedClockConfiguration.java            # 지금 시각 고정(2026-10-25 12:00 KST). 쓰는 테스트끼리 컨테이너 하나를 같이 쓴다
-│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest, SafetyStockTest, InventoryStatsTest, AdjustmentTest  # 쪽지 처리·API·스케줄러
+│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest, SafetyStockTest, InventoryStatsTest, AdjustmentTest, FifoExperimentTest  # 쪽지 처리·API·스케줄러
 │   └── common/error/GlobalExceptionHandlerTest.java   # 오류 응답 모양 (DB 없이)
 ├── scripts/                           # 동시 예약 100건 투입(e01-reserve-100.ps1)·집계·정리 SQL
 └── docs/                              # dev 확인·실패 시나리오·동시성 시험 절차
