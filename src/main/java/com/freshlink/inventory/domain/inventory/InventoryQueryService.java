@@ -14,6 +14,8 @@ import com.freshlink.inventory.common.error.InventoryErrorCode;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
 import com.freshlink.inventory.domain.product.StoreProductResponse;
+import com.freshlink.inventory.domain.safetystock.SafetyStock;
+import com.freshlink.inventory.domain.safetystock.SafetyStockRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,17 +28,20 @@ public class InventoryQueryService {
     private final InventoryLotRepository inventoryLotRepository;
     private final ProductRepository productRepository;
     private final InventoryCalculationService calculationService;
+    private final SafetyStockRepository safetyStockRepository;
     private final Clock clock;
 
     public InventoryQueryService(
             InventoryLotRepository inventoryLotRepository,
             ProductRepository productRepository,
             InventoryCalculationService calculationService,
+            SafetyStockRepository safetyStockRepository,
             Clock clock
     ) {
         this.inventoryLotRepository = inventoryLotRepository;
         this.productRepository = productRepository;
         this.calculationService = calculationService;
+        this.safetyStockRepository = safetyStockRepository;
         this.clock = clock;
     }
 
@@ -55,10 +60,14 @@ public class InventoryQueryService {
         Map<Long, Product> products = productRepository.findAllById(lotsByProduct.keySet()).stream()
                 .collect(Collectors.toMap(Product::getId, Function.identity()));
 
+        // S-40 점주가 정하지 않은 상품은 기본값
+        Map<Long, Integer> safetyStocks = safetyStockRepository.quantitiesByProduct(storeId);
+
         return lotsByProduct.entrySet().stream()
                 .map(entry -> toSummary(
                         products.get(entry.getKey()),
                         entry.getValue(),
+                        safetyStocks.getOrDefault(entry.getKey(), SafetyStock.DEFAULT_QUANTITY),
                         now
                 ))
                 .sorted(
@@ -72,6 +81,7 @@ public class InventoryQueryService {
     private InventorySummaryResponse toSummary(
             Product product,
             List<InventoryLot> lots,
+            int safetyStock,
             LocalDateTime now
     ) {
         if (product == null) {
@@ -123,7 +133,9 @@ public class InventoryQueryService {
                 availableQuantity,
                 nearestExpiry,
                 imminentLotCount,
-                expiredLotCount
+                expiredLotCount,
+                safetyStock,
+                availableQuantity < safetyStock
         );
     }
 

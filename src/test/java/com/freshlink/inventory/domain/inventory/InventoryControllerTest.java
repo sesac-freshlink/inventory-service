@@ -47,7 +47,9 @@ class InventoryControllerTest {
                 19,
                 OffsetDateTime.parse("2026-10-20T23:59:59+09:00"),
                 0,
-                0
+                0,
+                5,
+                false
         );
 
         when(inventoryQueryService.getInventory(1L))
@@ -63,7 +65,9 @@ class InventoryControllerTest {
                 .andExpect(jsonPath("$[0].productCode").value("P015"))
                 .andExpect(jsonPath("$[0].availableQuantity").value(19))
                 .andExpect(jsonPath("$[0].nearestExpiry")
-                        .value("2026-10-20T23:59:59+09:00"));
+                        .value("2026-10-20T23:59:59+09:00"))
+                .andExpect(jsonPath("$[0].safetyStock").value(5))
+                .andExpect(jsonPath("$[0].lowStock").value(false));
     }
 
     @Test

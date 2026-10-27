@@ -53,7 +53,7 @@ flowchart LR
 
 | ID | 기능 | API / 방식 | 완료 기준 |
 | --- | --- | --- | --- |
-| S-10 | 재고 목록 | `GET /owner/inventory` | 상품별 총 수량·예약 수량·구매 가능 수량 |
+| S-10 | 재고 목록 | `GET /owner/inventory` | 상품별 총 수량·예약 수량·구매 가능 수량. `safetyStock`·`lowStock`(구매 가능 < 안전재고) |
 | S-11 | lot별 재고 | `GET /owner/inventory/{productId}/lots` | 유통기한별 수량 |
 | S-13 | 변동 이력 | `GET /owner/inventory/ledger` | 이력 합계가 현재 재고와 같다 |
 | S-15 | 실시간 반영 | `GET /owner/inventory` (점주 화면이 3초마다 조회) | 결제·입고·폐기 후 3초 안에 새로고침 없이 갱신 |
@@ -62,6 +62,7 @@ flowchart LR
 | S-31 | 기한 경과 판매 차단 | 내부 로직 | 경과 lot은 구매 가능 수량·예약에서 제외 |
 | S-32 | 폐기 | `POST /owner/disposals` 본문 `{lotId, quantity}` → **202** `{disposalId, lotId, quantity}`. 헤더 `X-Store-Id`·`X-User-Id`. 오류: 404 `LOT_NOT_FOUND`, 403 `LOT_NOT_IN_STORE`, 409 `NOT_DISPOSABLE`(정상 lot), 400 `VALIDATION_ERROR`(수량 1 미만)·`INVALID_QUANTITY`(폐기 가능 수량 초과) | 202 뒤 DISPOSE 쪽지를 처리하면 lot 수량 감소 + 원장 '폐기'. 처리 때 수량이 모자라면 SKIPPED |
 | S-33 | 폐기 요청 이력 | `GET /owner/disposals` (선택 쿼리 `status=REQUESTED\|DONE\|SKIPPED`, 최신순 최근 100건). 헤더 `X-Store-Id` | 202로 접수된 요청이 DONE(수량 감소)·SKIPPED(예약 때문에 재고 그대로)로 끝났는지 점주가 본다 |
+| S-40 | 안전재고 설정 | `GET /owner/inventory/safety-stocks` (상품 전체), `PUT /owner/inventory/safety-stocks/{productId}` 본문 `{safetyStock}`(0~999). 오류: 400 `VALIDATION_ERROR`, 404 `PRODUCT_NOT_FOUND` | 정하지 않은 상품은 기본값 5. 0이면 부족으로 표시하지 않는다. 재고를 바꾸지 않아 쪽지를 거치지 않는다 |
 | U-10 | 점포 상품 목록 | `GET /stores/{storeId}/products` | 상품 30개 전부. 입고가 없는 상품·점포도 `availableQuantity 0`, `soldOut true`로 나온다 |
 | E-01 | 점포별 순서 처리 (구현됨) | FIFO 큐 소비. RESERVE(FEFO 예약 → RESERVED/RESERVE_FAILED), CONFIRM, RELEASE, DISPOSE, INBOUND | 동시 예약 100건에도 재고가 음수가 되지 않는다 |
 | E-09 | 유통기한 스케줄러 (구현됨) | `app.expiry.cron`(기본 자정) + ShedLock `lotStatusJob` | 주기마다 임박·경과 상태 갱신 |
@@ -80,6 +81,7 @@ API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gatew
 | `disposal` | id, store_id, lot_id, quantity, requested_by, status(REQUESTED/DONE/SKIPPED), created_at, processed_at |
 | `ledger` | id, store_id, lot_id, type(INBOUND/SALE/DISPOSE), quantity, ref_id, created_at |
 | `inbound` | id, shipment_id(유니크), store_id, received_at |
+| `safety_stock` | id, store_id, product_id, quantity(0~999), created_at, updated_at. (store_id, product_id) 유니크 |
 | `outbox`, `processed_message` | common 모듈이 쓰는 표 |
 | `shedlock` | 스케줄러·Outbox 발행기 잠금 |
 
@@ -115,6 +117,7 @@ inventory-service/
 │       ├── inventory/    # lot, 예약, 원장, 재고 조회
 │       ├── inbound/      # INBOUND 처리
 │       ├── disposal/     # 폐기
+│       ├── safetystock/  # 안전재고 설정(S-40)
 │       └── scheduler/    # 유통기한 스케줄러
 ├── src/main/resources/
 │   ├── application.yml                # 공통. 값은 환경 변수
@@ -126,7 +129,7 @@ inventory-service/
 │   ├── TestcontainersConfiguration.java        # 테스트·로컬 실행용 MySQL 8.4 컨테이너
 │   ├── TestInventoryServiceApplication.java    # IntelliJ에서 DB 없이 실행할 때 이걸 Run
 │   ├── FixedClockConfiguration.java            # 지금 시각 고정(2026-10-25 12:00 KST). 쓰는 테스트끼리 컨테이너 하나를 같이 쓴다
-│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest  # 쪽지 처리·API·스케줄러
+│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest, SafetyStockTest  # 쪽지 처리·API·스케줄러
 │   └── common/error/GlobalExceptionHandlerTest.java   # 오류 응답 모양 (DB 없이)
 ├── scripts/                           # 동시 예약 100건 투입(e01-reserve-100.ps1)·집계·정리 SQL
 └── docs/                              # dev 확인·실패 시나리오·동시성 시험 절차
