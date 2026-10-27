@@ -128,6 +128,7 @@ public class InventoryQueryService {
                 product.getName(),
                 product.getCategory(),
                 product.getPrice(),
+                product.getImageUrl(),
                 totalQuantity,
                 reservedQuantity,
                 availableQuantity,
@@ -279,6 +280,7 @@ public class InventoryQueryService {
                             product.getName(),
                             product.getCategory(),
                             product.getPrice(),
+                            product.getImageUrl(),
                             availableQuantity,
                             availableQuantity == 0
                     );

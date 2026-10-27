@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -37,6 +38,7 @@ class StoreProductControllerTest {
                                 "매운 컵라면 115g",
                                 "라면",
                                 1700L,
+                                "https://img.example/P015.jpg",
                                 5,
                                 false
                         ),
@@ -45,6 +47,7 @@ class StoreProductControllerTest {
                                 "생수 500ml",
                                 "음료",
                                 1000L,
+                                null,
                                 0,
                                 true
                         )
@@ -59,6 +62,8 @@ class StoreProductControllerTest {
                 .andExpect(jsonPath("$[0].price").value(1700))
                 .andExpect(jsonPath("$[0].availableQuantity").value(5))
                 .andExpect(jsonPath("$[0].soldOut").value(false))
+                .andExpect(jsonPath("$[0].imageUrl").value("https://img.example/P015.jpg"))
+                .andExpect(jsonPath("$[1].imageUrl").value(nullValue()))
                 .andExpect(jsonPath("$[1].availableQuantity").value(0))
                 .andExpect(jsonPath("$[1].soldOut").value(true));
     }
@@ -72,6 +77,7 @@ class StoreProductControllerTest {
                                 "생수 500ml",
                                 "음료",
                                 1000L,
+                                null,
                                 0,
                                 true
                         )
