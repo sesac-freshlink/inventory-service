@@ -1,0 +1,89 @@
+package com.freshlink.inventory.domain.inventory;
+
+import java.util.List;
+import java.time.LocalDate;
+
+import org.springframework.http.CacheControl;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.RequestParam;
+
+import io.swagger.v3.oas.annotations.Operation;
+
+@RestController
+@RequestMapping("/owner/inventory")
+public class InventoryController {
+
+    private static final String STORE_ID_HEADER = "X-Store-Id";
+
+    private final InventoryQueryService inventoryQueryService;
+    private final LedgerQueryService ledgerQueryService;
+
+    public InventoryController(
+            InventoryQueryService inventoryQueryService,
+            LedgerQueryService ledgerQueryService
+    ) {
+        this.inventoryQueryService = inventoryQueryService;
+        this.ledgerQueryService = ledgerQueryService;
+    }
+
+    @Operation(summary = "S-10 점포 재고 목록 (점주 화면이 3초마다 조회)")
+    @GetMapping
+    public ResponseEntity<List<InventorySummaryResponse>> getInventory(
+            @RequestHeader(STORE_ID_HEADER) Long storeId
+    ) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(inventoryQueryService.getInventory(storeId));
+    }
+
+    @Operation(summary = "S-11 상품 하나의 lot 목록 (유통기한 빠른 순)")
+    @GetMapping("/{productId}/lots")
+    public ResponseEntity<List<InventoryLotResponse>> getLots(
+            @RequestHeader(STORE_ID_HEADER) Long storeId,
+            @PathVariable Long productId
+    ) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(inventoryQueryService.getLots(storeId, productId));
+    }
+
+    @Operation(summary = "S-13 재고 변동 이력 (최신순 최근 100건, 선택 필터 type·productId·from·to)")
+    @GetMapping("/ledger")
+    public ResponseEntity<List<LedgerResponse>> getLedger(
+            @RequestHeader(STORE_ID_HEADER) Long storeId,
+            @RequestParam(required = false) Long productId,
+            @RequestParam(required = false) LedgerType type,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate from,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate to
+    ) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(ledgerQueryService.getLedger(
+                        storeId,
+                        productId,
+                        type,
+                        from,
+                        to
+                ));
+    }
+
+    @Operation(summary = "S-30 임박(24시간 이내)·경과 lot 목록")
+    @GetMapping("/expiring")
+    public ResponseEntity<List<ExpiringInventoryResponse>> getExpiring(
+            @RequestHeader(STORE_ID_HEADER) Long storeId
+    ) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(inventoryQueryService.getExpiring(storeId));
+    }
+}
