@@ -10,7 +10,20 @@ import java.util.List;
 
 public interface StoreProductStockRepository extends JpaRepository<StoreProductStock, Long> {
 
-    List<StoreProductStock> findByStoreId(Long storeId);
+    /**
+     * U-10 고객 상품 목록. 상품 전체에 그 점포의 조회 표 행을 LEFT JOIN 하고, q가 있으면 상품명으로 거른다.
+     * 상품명 순. q는 LikePattern.contains로 만든 값(null이면 조건 없음)
+     */
+    @Query("""
+            SELECT new com.freshlink.inventory.domain.storestock.StoreProductRow(
+                p.id, p.name, p.category, p.price, p.imageUrl, s.availableQuantity, s.validUntil
+            )
+            FROM Product p
+            LEFT JOIN StoreProductStock s ON s.productId = p.id AND s.storeId = :storeId
+            WHERE :q IS NULL OR p.name LIKE :q ESCAPE '\\'
+            ORDER BY p.name, p.id
+            """)
+    List<StoreProductRow> findStoreProducts(@Param("storeId") Long storeId, @Param("q") String q);
 
     /** 정리 작업용. 값이 맞는 시각이 지난 행 */
     List<StoreProductStock> findByValidUntilLessThanEqual(LocalDateTime now);

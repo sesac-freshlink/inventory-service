@@ -3,6 +3,8 @@ package com.freshlink.inventory.domain.inventory;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.assertj.core.groups.Tuple.tuple;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Clock;
@@ -17,7 +19,7 @@ import java.util.stream.Collectors;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
 import com.freshlink.inventory.domain.product.StoreProductResponse;
-import com.freshlink.inventory.domain.storestock.StoreProductStock;
+import com.freshlink.inventory.domain.storestock.StoreProductRow;
 import com.freshlink.inventory.domain.storestock.StoreProductStockRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -160,73 +162,39 @@ class InventoryQueryServiceTest {
     }
 
     @Test
-    void 고객_상품목록은_상품전체를_반환하고_구매가능수량은_조회표에서_읽는다() {
-        Product ramen = product(15L, "매운 컵라면 115g", "라면", 1700L);
-        Product water = product(2L, "생수 500ml", "음료", 1000L);
-        Product chips = product(8L, "감자칩", "과자", 1500L);
+    void 고객_상품목록은_조회표_JOIN_결과를_그대로_쓰고_값이_맞는_시각이_지났거나_행이_없으면_품절이다() {
+        // now = 2026-10-20 15:00 KST
+        LocalDateTime now = LocalDateTime.of(2026, 10, 20, 15, 0);
+        when(storeProductStockRepository.findStoreProducts(1L, null)).thenReturn(List.of(
+                new StoreProductRow(8L, "감자칩", "과자", 1500L, null, null, null),
+                new StoreProductRow(15L, "매운 컵라면 115g", "라면", 1700L, "https://img.example/P015.jpg",
+                        5, now.plusHours(1)),
+                new StoreProductRow(2L, "생수 500ml", "음료", 1000L, null, 3, now)
+        ));
 
-        // 값이 맞는 시각이 지났는지는 조회 표 행이 판단한다(StoreProductStock.availableAt)
-        StoreProductStock ramenStock = stock(15L, 5);
-        StoreProductStock waterStock = stock(2L, 0);
-        // 감자칩: 이 점포 조회 표에 행 자체가 없음
-        when(storeProductStockRepository.findByStoreId(1L))
-                .thenReturn(List.of(ramenStock, waterStock));
-        when(productRepository.findAll())
-                .thenReturn(List.of(ramen, water, chips));
+        List<StoreProductResponse> result = service.getStoreProducts(1L, null);
 
-        List<StoreProductResponse> result =
-                service.getStoreProducts(1L);
-
-        // 상품명 오름차순
+        // 순서는 쿼리(상품명 순) 그대로
         assertThat(result)
-                .extracting(StoreProductResponse::name)
+                .extracting(StoreProductResponse::name, StoreProductResponse::availableQuantity,
+                        StoreProductResponse::soldOut, StoreProductResponse::imageUrl)
                 .containsExactly(
-                        "감자칩",
-                        "매운 컵라면 115g",
-                        "생수 500ml"
-                );
-        assertThat(result)
-                .extracting(StoreProductResponse::availableQuantity, StoreProductResponse::soldOut)
-                .containsExactly(
-                        org.assertj.core.groups.Tuple.tuple(0, true),
-                        org.assertj.core.groups.Tuple.tuple(5, false),
-                        org.assertj.core.groups.Tuple.tuple(0, true)
+                        tuple("감자칩", 0, true, null),
+                        tuple("매운 컵라면 115g", 5, false, "https://img.example/P015.jpg"),
+                        // 값이 맞는 시각(15:00)이 지금과 같으면 이미 지난 것으로 본다
+                        tuple("생수 500ml", 0, true, null)
                 );
     }
 
     @Test
-    void 점포에_조회표_행이_하나도_없어도_고객_상품목록은_상품전체를_품절로_반환한다() {
-        Product ramen = product(15L, "매운 컵라면 115g", "라면", 1700L);
-        Product water = product(2L, "생수 500ml", "음료", 1000L);
-        when(storeProductStockRepository.findByStoreId(999L))
-                .thenReturn(List.of());
-        when(productRepository.findAll())
-                .thenReturn(List.of(ramen, water));
+    void 검색어는_앞뒤_공백을_빼고_LIKE_조건으로_넘기며_빈_검색어는_조건이_없다() {
+        when(storeProductStockRepository.findStoreProducts(1L, "%우유%")).thenReturn(List.of());
+        when(storeProductStockRepository.findStoreProducts(1L, null)).thenReturn(List.of());
 
-        List<StoreProductResponse> result =
-                service.getStoreProducts(999L);
+        service.getStoreProducts(1L, "  우유 ");
+        service.getStoreProducts(1L, "   ");
 
-        assertThat(result).hasSize(2);
-        assertThat(result)
-                .allSatisfy(response -> {
-                    assertThat(response.availableQuantity()).isZero();
-                    assertThat(response.soldOut()).isTrue();
-                });
-    }
-
-    private static Product product(Long id, String name, String category, Long price) {
-        Product product = mock(Product.class);
-        when(product.getId()).thenReturn(id);
-        when(product.getName()).thenReturn(name);
-        when(product.getCategory()).thenReturn(category);
-        when(product.getPrice()).thenReturn(price);
-        return product;
-    }
-
-    private static StoreProductStock stock(Long productId, int availableNow) {
-        StoreProductStock stock = mock(StoreProductStock.class);
-        when(stock.getProductId()).thenReturn(productId);
-        when(stock.availableAt(any())).thenReturn(availableNow);
-        return stock;
+        verify(storeProductStockRepository).findStoreProducts(1L, "%우유%");
+        verify(storeProductStockRepository).findStoreProducts(1L, null);
     }
 }
