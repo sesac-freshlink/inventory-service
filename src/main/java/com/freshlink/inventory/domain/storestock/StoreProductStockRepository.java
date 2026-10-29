@@ -7,6 +7,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface StoreProductStockRepository extends JpaRepository<StoreProductStock, Long> {
 
@@ -24,6 +25,17 @@ public interface StoreProductStockRepository extends JpaRepository<StoreProductS
             ORDER BY p.name, p.id
             """)
     List<StoreProductRow> findStoreProducts(@Param("storeId") Long storeId, @Param("q") String q);
+
+    /** U-10 고객 상품 상세. 목록과 같은 JOIN에서 상품 하나. 상품이 없으면 빈 값 */
+    @Query("""
+            SELECT new com.freshlink.inventory.domain.storestock.StoreProductRow(
+                p.id, p.name, p.category, p.price, p.imageUrl, s.availableQuantity, s.validUntil
+            )
+            FROM Product p
+            LEFT JOIN StoreProductStock s ON s.productId = p.id AND s.storeId = :storeId
+            WHERE p.id = :productId
+            """)
+    Optional<StoreProductRow> findStoreProduct(@Param("storeId") Long storeId, @Param("productId") Long productId);
 
     /** 정리 작업용. 값이 맞는 시각이 지난 행 */
     List<StoreProductStock> findByValidUntilLessThanEqual(LocalDateTime now);

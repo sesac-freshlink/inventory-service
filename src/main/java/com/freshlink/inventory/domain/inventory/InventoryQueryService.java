@@ -14,7 +14,9 @@ import com.freshlink.inventory.common.search.LikePattern;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
+import com.freshlink.inventory.domain.product.StoreProductDetailResponse;
 import com.freshlink.inventory.domain.product.StoreProductResponse;
+import com.freshlink.inventory.domain.storestock.StoreProductRow;
 import com.freshlink.inventory.domain.storestock.StoreProductStockRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -212,5 +214,27 @@ public class InventoryQueryService {
                     );
                 })
                 .toList();
+    }
+
+    /**
+     * U-10 고객 상품 상세. 목록과 같은 조회 표 행을 읽는다. 먼저 받게 될 상품의 유통기한은 조회 표의 valid_until
+     * (남은 재고가 있는 미경과 lot 중 가장 빠른 기한, 예약은 FEFO)이고, 품절이면 보여 주지 않는다
+     */
+    public StoreProductDetailResponse getStoreProduct(Long storeId, Long productId) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        StoreProductRow row = storeProductStockRepository.findStoreProduct(storeId, productId)
+                .orElseThrow(() -> new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND));
+        int availableQuantity = row.availableAt(now);
+
+        return new StoreProductDetailResponse(
+                row.productId(),
+                row.name(),
+                row.category(),
+                row.price(),
+                row.imageUrl(),
+                availableQuantity,
+                availableQuantity == 0,
+                availableQuantity == 0 ? null : toOffsetDateTime(row.validUntil())
+        );
     }
 }
