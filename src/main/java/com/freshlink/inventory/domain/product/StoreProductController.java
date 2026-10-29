@@ -39,4 +39,15 @@ public class StoreProductController {
                 .cacheControl(CacheControl.noStore())
                 .body(inventoryQueryService.getStoreProducts(storeId, q));
     }
+
+    @Operation(summary = "U-10 고객용 상품 상세 (공개). 구매 가능 수량과 먼저 받게 될 상품의 유통기한")
+    @GetMapping("/{productId}")
+    public ResponseEntity<StoreProductDetailResponse> getProduct(
+            @PathVariable Long storeId,
+            @PathVariable Long productId
+    ) {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.noStore())
+                .body(inventoryQueryService.getStoreProduct(storeId, productId));
+    }
 }
