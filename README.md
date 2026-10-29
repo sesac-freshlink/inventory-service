@@ -93,8 +93,8 @@ API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gatew
 | `safety_stock` | id, store_id, product_id, quantity(0~999), created_at, updated_at. (store_id, product_id) 유니크 |
 | `product_memo` | id, store_id, product_id, content(200자), version(낙관적 락), created_at, updated_at. (store_id, product_id) 유니크 |
 | `store_product_stock` | id, store_id, product_id, available_quantity, valid_until, updated_at. (store_id, product_id) 유니크. 고객용 재고 조회 표(CQRS) |
-| `outbox`, `processed_message` | common 모듈이 쓰는 표 |
-| `shedlock` | 스케줄러·Outbox 발행기 잠금 |
+| `outbox`, `processed_message` | common 모듈이 쓰는 표. common 0.4.0이 1시간마다 보낸 지 7일 지난 outbox 줄과 30일 지난 processed_message 줄을 지운다(안 보낸 줄은 남긴다) |
+| `shedlock` | 스케줄러·Outbox 발행기·common 정리 작업(`freshlink-message-cleanup`) 잠금 |
 
 상태가 바뀌는 길:
 
