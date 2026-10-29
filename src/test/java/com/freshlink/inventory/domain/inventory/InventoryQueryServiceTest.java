@@ -14,11 +14,9 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-import com.freshlink.inventory.domain.memo.ProductMemoRepository;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
 import com.freshlink.inventory.domain.product.StoreProductResponse;
-import com.freshlink.inventory.domain.safetystock.SafetyStockRepository;
 import com.freshlink.inventory.domain.storestock.StoreProductStock;
 import com.freshlink.inventory.domain.storestock.StoreProductStockRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,13 +39,10 @@ class InventoryQueryServiceTest {
     ProductRepository productRepository;
 
     @Mock
-    SafetyStockRepository safetyStockRepository;
-
-    @Mock
     StoreProductStockRepository storeProductStockRepository;
 
     @Mock
-    ProductMemoRepository productMemoRepository;
+    InventorySearchRepository inventorySearchRepository;
 
     private InventoryQueryService service;
 
@@ -61,130 +56,10 @@ class InventoryQueryServiceTest {
                 inventoryLotRepository,
                 productRepository,
                 calculationService,
-                safetyStockRepository,
                 storeProductStockRepository,
-                productMemoRepository,
+                inventorySearchRepository,
                 clock
         );
-    }
-
-    @Test
-    void 재고목록은_모든lot을_합산하고_경과lot은_구매가능수량에서_제외한다() {
-        Product product = product(
-                15L,
-                "P015",
-                "매운 컵라면 115g",
-                "라면",
-                1700L
-        );
-
-        InventoryLot expiredLot = lot(
-                15L,
-                LocalDateTime.of(2026, 10, 20, 14, 0),
-                10,
-                2
-        );
-
-        InventoryLot imminentLot = lot(
-                15L,
-                LocalDateTime.of(2026, 10, 20, 16, 0),
-                8,
-                3
-        );
-
-        when(inventoryLotRepository.findByStoreId(1L))
-                .thenReturn(List.of(expiredLot, imminentLot));
-
-        when(productRepository.findAllById(any()))
-                .thenReturn(List.of(product));
-
-        List<InventorySummaryResponse> result =
-                service.getInventory(1L);
-
-        assertThat(result).hasSize(1);
-
-        InventorySummaryResponse response = result.getFirst();
-
-        assertThat(response.productId()).isEqualTo(15L);
-        assertThat(response.totalQuantity()).isEqualTo(18);
-        assertThat(response.reservedQuantity()).isEqualTo(5);
-        assertThat(response.availableQuantity()).isEqualTo(5);
-        assertThat(response.nearestExpiry())
-                .isEqualTo("2026-10-20T14:00+09:00");
-        assertThat(response.imminentLotCount()).isEqualTo(1);
-        assertThat(response.expiredLotCount()).isEqualTo(1);
-    }
-
-    @Test
-    void 안전재고를_정하지_않은_상품은_기본값5로_부족을_판단한다() {
-        Product product = product(15L, "P015", "매운 컵라면 115g", "라면", 1700L);
-
-        InventoryLot lot = lot(15L, LocalDateTime.of(2026, 10, 28, 23, 59), 4, 0);
-
-        when(inventoryLotRepository.findByStoreId(1L)).thenReturn(List.of(lot));
-        when(productRepository.findAllById(any())).thenReturn(List.of(product));
-        when(safetyStockRepository.quantitiesByProduct(1L)).thenReturn(Map.of());
-
-        InventorySummaryResponse response = service.getInventory(1L).getFirst();
-
-        assertThat(response.safetyStock()).isEqualTo(5);
-        assertThat(response.lowStock()).isTrue();
-    }
-
-    @Test
-    void 점주가_정한_안전재고보다_구매가능수량이_적을때만_부족이다() {
-        Product ramen = product(15L, "P015", "매운 컵라면 115g", "라면", 1700L);
-        Product milk = product(16L, "P016", "흰 우유 200ml", "유제품", 1200L);
-
-        InventoryLot ramenLot = lot(15L, LocalDateTime.of(2026, 10, 28, 23, 59), 4, 0);
-        InventoryLot milkLot = lot(16L, LocalDateTime.of(2026, 10, 28, 23, 59), 10, 0);
-
-        when(inventoryLotRepository.findByStoreId(1L)).thenReturn(List.of(ramenLot, milkLot));
-        when(productRepository.findAllById(any())).thenReturn(List.of(ramen, milk));
-        // 라면은 0(알림 끔), 우유는 10(구매 가능 10과 같으면 부족 아님)
-        when(safetyStockRepository.quantitiesByProduct(1L)).thenReturn(Map.of(15L, 0, 16L, 10));
-
-        Map<Long, InventorySummaryResponse> byProduct = service.getInventory(1L).stream()
-                .collect(Collectors.toMap(InventorySummaryResponse::productId, Function.identity()));
-
-        assertThat(byProduct.get(15L).safetyStock()).isZero();
-        assertThat(byProduct.get(15L).lowStock()).isFalse();
-        assertThat(byProduct.get(16L).safetyStock()).isEqualTo(10);
-        assertThat(byProduct.get(16L).lowStock()).isFalse();
-    }
-
-    private Product product(
-            Long id,
-            String productCode,
-            String name,
-            String category,
-            Long price
-    ) {
-        Product product = mock(Product.class);
-
-        when(product.getId()).thenReturn(id);
-        when(product.getProductCode()).thenReturn(productCode);
-        when(product.getName()).thenReturn(name);
-        when(product.getCategory()).thenReturn(category);
-        when(product.getPrice()).thenReturn(price);
-
-        return product;
-    }
-
-    private InventoryLot lot(
-            Long productId,
-            LocalDateTime expiryDate,
-            int quantity,
-            int reservedQuantity
-    ) {
-        InventoryLot lot = mock(InventoryLot.class);
-
-        when(lot.getProductId()).thenReturn(productId);
-        when(lot.getExpiryDate()).thenReturn(expiryDate);
-        when(lot.getQuantity()).thenReturn(quantity);
-        when(lot.getReservedQuantity()).thenReturn(reservedQuantity);
-
-        return lot;
     }
 
     @Test

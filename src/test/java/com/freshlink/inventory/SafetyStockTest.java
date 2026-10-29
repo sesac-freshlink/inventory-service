@@ -107,7 +107,7 @@ class SafetyStockTest {
         assertThat(lowStock(body, ramen)).containsExactly(true);
         assertThat(lowStock(body, milk)).containsExactly(false);
         assertThat(lowStock(body, bread)).containsExactly(false);
-        assertThat(JsonPath.<List<Integer>>read(body, "$[?(@.productId == " + milk + ")].safetyStock"))
+        assertThat(JsonPath.<List<Integer>>read(body, "$.items[?(@.productId == " + milk + ")].safetyStock"))
                 .containsExactly(10);
     }
 
@@ -134,7 +134,7 @@ class SafetyStockTest {
     }
 
     private List<Boolean> lowStock(String body, long productId) {
-        return JsonPath.read(body, "$[?(@.productId == " + productId + ")].lowStock");
+        return JsonPath.read(body, "$.items[?(@.productId == " + productId + ")].lowStock");
     }
 
     private long product(String productCode) {

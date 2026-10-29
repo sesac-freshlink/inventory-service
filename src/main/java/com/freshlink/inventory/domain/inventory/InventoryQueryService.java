@@ -6,18 +6,14 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import com.freshlink.common.error.BusinessException;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
-import com.freshlink.inventory.domain.memo.ProductMemoRepository;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
 import com.freshlink.inventory.domain.product.StoreProductResponse;
-import com.freshlink.inventory.domain.safetystock.SafetyStock;
-import com.freshlink.inventory.domain.safetystock.SafetyStockRepository;
 import com.freshlink.inventory.domain.storestock.StoreProductStock;
 import com.freshlink.inventory.domain.storestock.StoreProductStockRepository;
 import org.springframework.stereotype.Service;
@@ -32,125 +28,56 @@ public class InventoryQueryService {
     private final InventoryLotRepository inventoryLotRepository;
     private final ProductRepository productRepository;
     private final InventoryCalculationService calculationService;
-    private final SafetyStockRepository safetyStockRepository;
     private final StoreProductStockRepository storeProductStockRepository;
-    private final ProductMemoRepository productMemoRepository;
+    private final InventorySearchRepository inventorySearchRepository;
     private final Clock clock;
 
     public InventoryQueryService(
             InventoryLotRepository inventoryLotRepository,
             ProductRepository productRepository,
             InventoryCalculationService calculationService,
-            SafetyStockRepository safetyStockRepository,
             StoreProductStockRepository storeProductStockRepository,
-            ProductMemoRepository productMemoRepository,
+            InventorySearchRepository inventorySearchRepository,
             Clock clock
     ) {
         this.inventoryLotRepository = inventoryLotRepository;
         this.productRepository = productRepository;
         this.calculationService = calculationService;
-        this.safetyStockRepository = safetyStockRepository;
         this.storeProductStockRepository = storeProductStockRepository;
-        this.productMemoRepository = productMemoRepository;
+        this.inventorySearchRepository = inventorySearchRepository;
         this.clock = clock;
     }
 
-    public List<InventorySummaryResponse> getInventory(Long storeId) {
+    /** 한 페이지 최대 크기. 화면 기본은 DEFAULT_PAGE_SIZE */
+    static final int MAX_PAGE_SIZE = 100;
+    static final int DEFAULT_PAGE_SIZE = 20;
+
+    /**
+     * S-10 점주 재고 목록 한 페이지. 집계·검색·자르기는 InventorySearchRepository의 SQL 한 번으로 한다.
+     * lowStockCount는 검색·필터와 상관없이 점포 전체의 부족 상품 수(화면 위쪽 건수)
+     */
+    public InventoryPageResponse searchInventory(
+            Long storeId, InventorySearchCondition condition, Integer page, Integer size) {
+        int pageNumber = page != null ? page : 0;
+        int pageSize = size != null ? size : DEFAULT_PAGE_SIZE;
+        if (pageNumber < 0 || pageSize < 1 || pageSize > MAX_PAGE_SIZE) {
+            throw new BusinessException(InventoryErrorCode.INVALID_PAGE);
+        }
         LocalDateTime now = LocalDateTime.now(clock);
 
-        List<InventoryLot> lots = inventoryLotRepository.findByStoreId(storeId);
+        List<InventorySummaryResponse> items = inventorySearchRepository.search(
+                storeId, condition, now, pageNumber * pageSize, pageSize);
+        long total = inventorySearchRepository.count(storeId, condition, now);
+        long lowStockCount = inventorySearchRepository.count(
+                storeId, InventorySearchCondition.lowStockOnly(), now);
 
-        if (lots.isEmpty()) {
-            return List.of();
-        }
-
-        Map<Long, List<InventoryLot>> lotsByProduct = lots.stream()
-                .collect(Collectors.groupingBy(InventoryLot::getProductId));
-
-        Map<Long, Product> products = productRepository.findAllById(lotsByProduct.keySet()).stream()
-                .collect(Collectors.toMap(Product::getId, Function.identity()));
-
-        // S-40 점주가 정하지 않은 상품은 기본값
-        Map<Long, Integer> safetyStocks = safetyStockRepository.quantitiesByProduct(storeId);
-        Set<Long> memoProductIds = productMemoRepository.findProductIdsByStoreId(storeId);
-
-        return lotsByProduct.entrySet().stream()
-                .map(entry -> toSummary(
-                        products.get(entry.getKey()),
-                        entry.getValue(),
-                        safetyStocks.getOrDefault(entry.getKey(), SafetyStock.DEFAULT_QUANTITY),
-                        memoProductIds.contains(entry.getKey()),
-                        now
-                ))
-                .sorted(
-                        java.util.Comparator
-                                .comparing(InventorySummaryResponse::name)
-                                .thenComparing(InventorySummaryResponse::productId)
-                )
-                .toList();
-    }
-
-    private InventorySummaryResponse toSummary(
-            Product product,
-            List<InventoryLot> lots,
-            int safetyStock,
-            boolean hasMemo,
-            LocalDateTime now
-    ) {
-        if (product == null) {
-            throw new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND);
-        }
-
-        int totalQuantity = lots.stream()
-                .mapToInt(InventoryLot::getQuantity)
-                .sum();
-
-        int reservedQuantity = lots.stream()
-                .mapToInt(InventoryLot::getReservedQuantity)
-                .sum();
-
-        int availableQuantity =
-                calculationService.calculateAvailableQuantity(lots, now);
-
-        OffsetDateTime nearestExpiry = lots.stream()
-                .filter(lot -> lot.getQuantity() > 0)
-                .map(InventoryLot::getExpiryDate)
-                .min(LocalDateTime::compareTo)
-                .map(this::toOffsetDateTime)
-                .orElse(null);
-
-        int imminentLotCount = (int) lots.stream()
-                .filter(lot -> lot.getQuantity() > 0)
-                .filter(lot ->
-                        calculationService.calculateStatus(lot, now)
-                                == InventoryLotStatus.IMMINENT
-                )
-                .count();
-
-        int expiredLotCount = (int) lots.stream()
-                .filter(lot -> lot.getQuantity() > 0)
-                .filter(lot ->
-                        calculationService.calculateStatus(lot, now)
-                                == InventoryLotStatus.EXPIRED
-                )
-                .count();
-
-        return new InventorySummaryResponse(
-                product.getId(),
-                product.getProductCode(),
-                product.getName(),
-                product.getCategory(),
-                product.getPrice(),
-                product.getImageUrl(),
-                totalQuantity,
-                reservedQuantity,
-                availableQuantity,
-                nearestExpiry,
-                imminentLotCount,
-                expiredLotCount,
-                safetyStock,
-                availableQuantity < safetyStock,
-                hasMemo
+        return new InventoryPageResponse(
+                items,
+                pageNumber,
+                pageSize,
+                total,
+                (int) ((total + pageSize - 1) / pageSize),
+                lowStockCount
         );
     }
 

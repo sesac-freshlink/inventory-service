@@ -21,7 +21,8 @@ public enum InventoryErrorCode implements ErrorCode {
     BELOW_RESERVED(409, "예약된 수량보다 적게 줄일 수 없습니다"),
     LOT_CHANGED(409, "다른 처리와 겹쳐 재고가 바뀌었습니다. 다시 확인해 주세요"),
     MEMO_CHANGED(409, "다른 화면에서 메모가 바뀌었습니다. 다시 확인해 주세요"),
-    INVALID_LIMIT(400, "조회 개수(limit)는 1~100입니다");
+    INVALID_LIMIT(400, "조회 개수(limit)는 1~100입니다"),
+    INVALID_PAGE(400, "page는 0 이상, size는 1~100입니다");
 
     private final int status;
     private final String message;
