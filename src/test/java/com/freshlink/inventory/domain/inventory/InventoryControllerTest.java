@@ -37,6 +37,9 @@ class InventoryControllerTest {
     @MockitoBean
     LedgerQueryService ledgerQueryService;
 
+    @MockitoBean
+    ExpiryCalendarService expiryCalendarService;
+
     @Test
     void 재고_목록은_200과_no_store로_응답한다() throws Exception {
         InventorySummaryResponse response = new InventorySummaryResponse(

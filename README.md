@@ -61,6 +61,7 @@ flowchart LR
 | S-15 | 실시간 반영 | `GET /owner/inventory` (점주 화면이 3초마다 조회) | 결제·입고·폐기 후 3초 안에 새로고침 없이 갱신 |
 | S-20 | 입고 처리 | INBOUND 쪽지 | 같은 shipmentId는 두 번 반영되지 않는다 |
 | S-30 | 임박 목록 | `GET /owner/inventory/expiring` | 24시간 이내·경과 lot 구분 |
+| 달력 | 유통기한 달력 | `GET /owner/inventory/expiry-calendar` (선택 쿼리 `month` = yyyy-MM, 빼면 이번 달) → `{month, days[{date, lotCount, quantity, lots[{lotId, productId, productCode, name, expiryDate, quantity, reservedQuantity, status}]}]}` | 그 달에 기한이 끝나는 lot(수량이 남은 것)을 날짜별로 묶는다. lot이 있는 날짜만. 날짜마다 lot 목록까지 줘서 화면이 날짜를 누를 때 다시 묻지 않는다. `status`는 지금 시각으로 계산(경과 = 기한 ≤ 지금, 임박 = 24시간 이내). 모양이 틀린 `month`는 400 |
 | S-31 | 기한 경과 판매 차단 | 내부 로직 | 경과 lot은 구매 가능 수량·예약에서 제외 |
 | S-32 | 폐기 | `POST /owner/disposals` 본문 `{lotId, quantity}` → **202** `{disposalId, lotId, quantity}`. 헤더 `X-Store-Id`·`X-User-Id`. 오류: 404 `LOT_NOT_FOUND`, 403 `LOT_NOT_IN_STORE`, 409 `NOT_DISPOSABLE`(정상 lot), 400 `VALIDATION_ERROR`(수량 1 미만)·`INVALID_QUANTITY`(폐기 가능 수량 초과) | 202 뒤 DISPOSE 쪽지를 처리하면 lot 수량 감소 + 원장 '폐기'. 처리 때 수량이 모자라면 SKIPPED |
 | S-33 | 폐기 요청 이력 | `GET /owner/disposals` (선택 쿼리 `status=REQUESTED\|DONE\|SKIPPED`, 최신순 최근 100건). 헤더 `X-Store-Id` | 202로 접수된 요청이 DONE(수량 감소)·SKIPPED(예약 때문에 재고 그대로)로 끝났는지 점주가 본다 |
@@ -155,7 +156,7 @@ inventory-service/
 │   ├── TestcontainersConfiguration.java        # 테스트·로컬 실행용 MySQL 8.4 컨테이너
 │   ├── TestInventoryServiceApplication.java    # IntelliJ에서 DB 없이 실행할 때 이걸 Run
 │   ├── FixedClockConfiguration.java            # 지금 시각 고정(2026-10-25 12:00 KST). 쓰는 테스트끼리 컨테이너 하나를 같이 쓴다
-│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest, SafetyStockTest, InventoryStatsTest, AdjustmentTest, FifoExperimentTest, StoreStockTest, ProductMemoTest, SalesRankingTest, InventorySearchTest, StoreProductSearchTest, StoreProductDetailTest  # 쪽지 처리·API·스케줄러·조회 표
+│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest, SafetyStockTest, InventoryStatsTest, AdjustmentTest, FifoExperimentTest, StoreStockTest, ProductMemoTest, SalesRankingTest, InventorySearchTest, StoreProductSearchTest, StoreProductDetailTest, ExpiryCalendarTest  # 쪽지 처리·API·스케줄러·조회 표
 │   └── common/error/GlobalExceptionHandlerTest.java   # 오류 응답 모양 (DB 없이)
 ├── scripts/                           # 동시 예약 100건 투입(e01-reserve-100.ps1)·집계·정리 SQL
 └── docs/                              # dev 확인·실패 시나리오·동시성 시험 절차
