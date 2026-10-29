@@ -19,7 +19,8 @@ public enum InventoryErrorCode implements ErrorCode {
     SERVICE_UNAVAILABLE(503, "잠시 후 다시 시도해 주세요"),
     INVALID_DATE_RANGE(400, "조회 시작일은 종료일보다 늦을 수 없습니다"),
     BELOW_RESERVED(409, "예약된 수량보다 적게 줄일 수 없습니다"),
-    LOT_CHANGED(409, "다른 처리와 겹쳐 재고가 바뀌었습니다. 다시 확인해 주세요");
+    LOT_CHANGED(409, "다른 처리와 겹쳐 재고가 바뀌었습니다. 다시 확인해 주세요"),
+    MEMO_CHANGED(409, "다른 화면에서 메모가 바뀌었습니다. 다시 확인해 주세요");
 
     private final int status;
     private final String message;

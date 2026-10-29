@@ -50,7 +50,8 @@ class InventoryControllerTest {
                 0,
                 0,
                 5,
-                false
+                false,
+                true
         );
 
         when(inventoryQueryService.getInventory(1L))

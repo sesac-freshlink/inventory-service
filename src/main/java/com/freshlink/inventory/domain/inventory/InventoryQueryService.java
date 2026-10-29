@@ -6,11 +6,13 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import com.freshlink.common.error.BusinessException;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
+import com.freshlink.inventory.domain.memo.ProductMemoRepository;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
 import com.freshlink.inventory.domain.product.StoreProductResponse;
@@ -32,6 +34,7 @@ public class InventoryQueryService {
     private final InventoryCalculationService calculationService;
     private final SafetyStockRepository safetyStockRepository;
     private final StoreProductStockRepository storeProductStockRepository;
+    private final ProductMemoRepository productMemoRepository;
     private final Clock clock;
 
     public InventoryQueryService(
@@ -40,6 +43,7 @@ public class InventoryQueryService {
             InventoryCalculationService calculationService,
             SafetyStockRepository safetyStockRepository,
             StoreProductStockRepository storeProductStockRepository,
+            ProductMemoRepository productMemoRepository,
             Clock clock
     ) {
         this.inventoryLotRepository = inventoryLotRepository;
@@ -47,6 +51,7 @@ public class InventoryQueryService {
         this.calculationService = calculationService;
         this.safetyStockRepository = safetyStockRepository;
         this.storeProductStockRepository = storeProductStockRepository;
+        this.productMemoRepository = productMemoRepository;
         this.clock = clock;
     }
 
@@ -67,12 +72,14 @@ public class InventoryQueryService {
 
         // S-40 점주가 정하지 않은 상품은 기본값
         Map<Long, Integer> safetyStocks = safetyStockRepository.quantitiesByProduct(storeId);
+        Set<Long> memoProductIds = productMemoRepository.findProductIdsByStoreId(storeId);
 
         return lotsByProduct.entrySet().stream()
                 .map(entry -> toSummary(
                         products.get(entry.getKey()),
                         entry.getValue(),
                         safetyStocks.getOrDefault(entry.getKey(), SafetyStock.DEFAULT_QUANTITY),
+                        memoProductIds.contains(entry.getKey()),
                         now
                 ))
                 .sorted(
@@ -87,6 +94,7 @@ public class InventoryQueryService {
             Product product,
             List<InventoryLot> lots,
             int safetyStock,
+            boolean hasMemo,
             LocalDateTime now
     ) {
         if (product == null) {
@@ -141,7 +149,8 @@ public class InventoryQueryService {
                 imminentLotCount,
                 expiredLotCount,
                 safetyStock,
-                availableQuantity < safetyStock
+                availableQuantity < safetyStock,
+                hasMemo
         );
     }
 
