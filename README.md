@@ -55,7 +55,7 @@ flowchart LR
 
 | ID | 기능 | API / 방식 | 완료 기준 |
 | --- | --- | --- | --- |
-| S-10 | 재고 목록 | `GET /owner/inventory` | 상품별 총 수량·예약 수량·구매 가능 수량. `safetyStock`·`lowStock`(구매 가능 < 안전재고), `hasMemo`(상품 메모 있음) |
+| S-10 | 재고 목록 | `GET /owner/inventory` (선택 쿼리 `q` 상품명·상품 코드 검색, `status` IMMINENT·EXPIRED·SOLD_OUT·LOW_STOCK 쉼표로 여러 개(모두 만족), `memo=true` 메모 있는 상품만, `page` 0부터, `size` 1~100 기본 20) → `{items, page, size, totalElements, totalPages, lowStockCount}` | `items`는 상품별 총 수량·예약 수량·구매 가능 수량, `safetyStock`·`lowStock`(구매 가능 < 안전재고), `hasMemo`. 상품명 순. `lowStockCount`는 검색·필터와 상관없이 점포 전체 부족 상품 수. 집계·거르기·자르기를 SQL 한 번으로 한다(6장). 오류: 400 `INVALID_PAGE` |
 | S-11 | lot별 재고 | `GET /owner/inventory/{productId}/lots` | 유통기한별 수량 |
 | S-13 | 변동 이력 | `GET /owner/inventory/ledger` | 이력 합계가 현재 재고와 같다 |
 | S-15 | 실시간 반영 | `GET /owner/inventory` (점주 화면이 3초마다 조회) | 결제·입고·폐기 후 3초 안에 새로고침 없이 갱신 |
@@ -111,6 +111,7 @@ API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gatew
 - **동시 예약 시험:** [docs/동시성-테스트-절차.md](docs/동시성-테스트-절차.md)와 `scripts/e01-*`.
 - **상품 이미지:** `product.image_url`은 V5가 더미 상품 30개에 넣은 CU 편의점 사이트(cu.bgfretail.com)의 상품 이미지 주소다. 시연용이고 상업적으로 쓰지 않는다. 주소가 막히면 화면이 자리표시를 보여 준다.
 - **왜 FIFO 그룹과 낙관적 락인가:** [docs/동시성-설계-FIFO와-낙관적-락.md](docs/동시성-설계-FIFO와-낙관적-락.md). 줄을 세우지 않으면 무엇이 깨지는지 `FifoExperimentTest`로 직접 본다.
+- **점주 재고 목록 검색·페이지:** `InventorySearchRepository`가 lot을 상품별로 `GROUP BY` 하면서 검색어는 `WHERE`, 집계해야 나오는 상태(임박·경과·품절·부족)는 `HAVING`으로 거르고 `LIMIT/OFFSET`으로 한 페이지만 돌려준다. 상품이 많아져도 DB가 필요한 줄만 돌려준다. 시간에 따라 바뀌는 값(구매 가능·임박·경과)은 저장하지 않고 요청 때 지금 시각과 비교해 계산하므로 필터가 틀리지 않는다(고객용 조회 표와 다른 선택인 이유는 [docs/고객용-재고-조회-표-CQRS.md](docs/고객용-재고-조회-표-CQRS.md) 4-3).
 - **고객용 재고 조회 표(CQRS):** [docs/고객용-재고-조회-표-CQRS.md](docs/고객용-재고-조회-표-CQRS.md). lot 수량을 바꾸는 코드는 끝에서 `StockChangePublisher.publish`를 부른다. SQL로 lot을 직접 고치면 조회 표가 따라오지 않는다.
 - **dev에서 한 번에 확인할 것:** [docs/dev-확인-절차.md](docs/dev-확인-절차.md).
 - **쪽지 처리 지표:** `/actuator/prometheus`에 아래 두 가지가 나온다. Grafana에서 보는 식은 [docs/동시성-테스트-절차.md](docs/동시성-테스트-절차.md) 5-1.
@@ -153,7 +154,7 @@ inventory-service/
 │   ├── TestcontainersConfiguration.java        # 테스트·로컬 실행용 MySQL 8.4 컨테이너
 │   ├── TestInventoryServiceApplication.java    # IntelliJ에서 DB 없이 실행할 때 이걸 Run
 │   ├── FixedClockConfiguration.java            # 지금 시각 고정(2026-10-25 12:00 KST). 쓰는 테스트끼리 컨테이너 하나를 같이 쓴다
-│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest, SafetyStockTest, InventoryStatsTest, AdjustmentTest, FifoExperimentTest, StoreStockTest, ProductMemoTest, SalesRankingTest  # 쪽지 처리·API·스케줄러·조회 표
+│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest, SafetyStockTest, InventoryStatsTest, AdjustmentTest, FifoExperimentTest, StoreStockTest, ProductMemoTest, SalesRankingTest, InventorySearchTest  # 쪽지 처리·API·스케줄러·조회 표
 │   └── common/error/GlobalExceptionHandlerTest.java   # 오류 응답 모양 (DB 없이)
 ├── scripts/                           # 동시 예약 100건 투입(e01-reserve-100.ps1)·집계·정리 SQL
 └── docs/                              # dev 확인·실패 시나리오·동시성 시험 절차

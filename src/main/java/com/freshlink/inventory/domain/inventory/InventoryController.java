@@ -1,6 +1,7 @@
 package com.freshlink.inventory.domain.inventory;
 
 import java.util.List;
+import java.util.Set;
 import java.time.LocalDate;
 
 import org.springframework.http.CacheControl;
@@ -32,14 +33,22 @@ public class InventoryController {
         this.ledgerQueryService = ledgerQueryService;
     }
 
-    @Operation(summary = "S-10 점포 재고 목록 (점주 화면이 3초마다 조회)")
+    @Operation(summary = "S-10 점포 재고 목록 한 페이지 (점주 화면이 3초마다 조회). "
+            + "q = 상품명·상품 코드 검색, status = IMMINENT·EXPIRED·SOLD_OUT·LOW_STOCK 쉼표로 여러 개(모두 만족), "
+            + "memo = true면 메모 있는 상품만, page 0부터, size 1~100(기본 20)")
     @GetMapping
-    public ResponseEntity<List<InventorySummaryResponse>> getInventory(
-            @RequestHeader(STORE_ID_HEADER) Long storeId
+    public ResponseEntity<InventoryPageResponse> getInventory(
+            @RequestHeader(STORE_ID_HEADER) Long storeId,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) Set<InventoryStatusFilter> status,
+            @RequestParam(defaultValue = "false") boolean memo,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size
     ) {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
-                .body(inventoryQueryService.getInventory(storeId));
+                .body(inventoryQueryService.searchInventory(
+                        storeId, new InventorySearchCondition(q, status, memo), page, size));
     }
 
     @Operation(summary = "S-11 상품 하나의 lot 목록 (유통기한 빠른 순)")

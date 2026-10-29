@@ -16,6 +16,7 @@ import com.freshlink.inventory.domain.disposal.DisposalResponse;
 import com.freshlink.inventory.domain.disposal.DisposalService;
 import com.freshlink.inventory.domain.inventory.InventoryCommandService;
 import com.freshlink.inventory.domain.inventory.InventoryQueryService;
+import com.freshlink.inventory.domain.inventory.InventorySearchCondition;
 import com.freshlink.inventory.domain.inventory.InventorySummaryResponse;
 import com.freshlink.inventory.domain.product.StoreProductResponse;
 import com.freshlink.inventory.domain.storestock.StoreStockRefresher;
@@ -310,9 +311,9 @@ class StoreStockTest {
                 .orElseThrow();
     }
 
-    /** 점주 재고 목록(S-10)은 지금도 lot을 바로 합산한다. 조회 표와 비교할 기준으로 쓴다 */
+    /** 점주 재고 목록(S-10)은 요청 때마다 lot을 SQL로 합산한다. 조회 표와 비교할 기준으로 쓴다 */
     private InventorySummaryResponse ownerView(long storeId, long productId) {
-        return inventoryQueryService.getInventory(storeId).stream()
+        return inventoryQueryService.searchInventory(storeId, InventorySearchCondition.all(), 0, 100).items().stream()
                 .filter(p -> p.productId().equals(productId))
                 .findFirst()
                 .orElseThrow();

@@ -15,6 +15,9 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -54,8 +57,8 @@ class InventoryControllerTest {
                 true
         );
 
-        when(inventoryQueryService.getInventory(1L))
-                .thenReturn(List.of(response));
+        when(inventoryQueryService.searchInventory(eq(1L), any(), any(), any()))
+                .thenReturn(new InventoryPageResponse(List.of(response), 0, 20, 1, 1, 0));
 
         mockMvc.perform(
                         get("/owner/inventory")
@@ -63,14 +66,45 @@ class InventoryControllerTest {
                 )
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
-                .andExpect(jsonPath("$[0].productId").value(15))
-                .andExpect(jsonPath("$[0].productCode").value("P015"))
-                .andExpect(jsonPath("$[0].imageUrl").value("https://img.example/P015.jpg"))
-                .andExpect(jsonPath("$[0].availableQuantity").value(19))
-                .andExpect(jsonPath("$[0].nearestExpiry")
+                .andExpect(jsonPath("$.items[0].productId").value(15))
+                .andExpect(jsonPath("$.items[0].productCode").value("P015"))
+                .andExpect(jsonPath("$.items[0].imageUrl").value("https://img.example/P015.jpg"))
+                .andExpect(jsonPath("$.items[0].availableQuantity").value(19))
+                .andExpect(jsonPath("$.items[0].nearestExpiry")
                         .value("2026-10-20T23:59:59+09:00"))
-                .andExpect(jsonPath("$[0].safetyStock").value(5))
-                .andExpect(jsonPath("$[0].lowStock").value(false));
+                .andExpect(jsonPath("$.items[0].safetyStock").value(5))
+                .andExpect(jsonPath("$.items[0].lowStock").value(false))
+                .andExpect(jsonPath("$.items[0].hasMemo").value(true))
+                .andExpect(jsonPath("$.totalElements").value(1))
+                .andExpect(jsonPath("$.lowStockCount").value(0));
+    }
+
+    @Test
+    void 검색어_상태_쉼표_목록_메모_페이지를_조건으로_넘긴다() throws Exception {
+        when(inventoryQueryService.searchInventory(eq(1L), any(), any(), any()))
+                .thenReturn(new InventoryPageResponse(List.of(), 1, 5, 0, 0, 0));
+
+        mockMvc.perform(
+                        get("/owner/inventory")
+                                .param("q", " 우유 ")
+                                .param("status", "IMMINENT,LOW_STOCK")
+                                .param("memo", "true")
+                                .param("page", "1")
+                                .param("size", "5")
+                                .header("X-Store-Id", "1")
+                )
+                .andExpect(status().isOk());
+
+        verify(inventoryQueryService).searchInventory(
+                1L,
+                new InventorySearchCondition(
+                        "우유",
+                        java.util.Set.of(InventoryStatusFilter.IMMINENT, InventoryStatusFilter.LOW_STOCK),
+                        true
+                ),
+                1,
+                5
+        );
     }
 
     @Test

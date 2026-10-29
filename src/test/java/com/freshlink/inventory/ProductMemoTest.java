@@ -209,7 +209,7 @@ class ProductMemoTest {
         String body = mockMvc.perform(get("/owner/inventory").header("X-Store-Id", storeId))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
-        return JsonPath.read(body, "$[?(@.productId == " + productId + ")].hasMemo");
+        return JsonPath.read(body, "$.items[?(@.productId == " + productId + ")].hasMemo");
     }
 
     private int memoCount(long storeId, long productId) {
