@@ -27,9 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class InventoryStatsService {
 
-    /** from을 주지 않을 때 기간 길이(to 포함) */
-    static final int DEFAULT_DAYS = 7;
-
     private final LedgerRepository ledgerRepository;
     private final ProductRepository productRepository;
     private final Clock clock;
@@ -45,18 +42,12 @@ public class InventoryStatsService {
     }
 
     public InventoryStatsResponse getStats(Long storeId, LocalDate from, LocalDate to) {
-        // to를 빼면 오늘, from을 빼면 to까지 7일
-        LocalDate end = to != null ? to : LocalDate.now(clock);
-        LocalDate start = from != null ? from : end.minusDays(DEFAULT_DAYS - 1);
-
-        if (start.isAfter(end)) {
-            throw new BusinessException(InventoryErrorCode.INVALID_DATE_RANGE);
-        }
+        DateRange range = DateRange.of(from, to, clock);
 
         List<ProductLedgerSum> sums = ledgerRepository.sumByProductAndType(
                 storeId,
-                start.atStartOfDay(),
-                end.plusDays(1).atStartOfDay()
+                range.fromInclusive(),
+                range.toExclusive()
         );
 
         Map<Long, Map<LedgerType, Integer>> byProduct = new HashMap<>();
@@ -85,7 +76,7 @@ public class InventoryStatsService {
         int adjusted = rows.stream().mapToInt(ProductStatsResponse::adjustedQuantity).sum();
 
         return new InventoryStatsResponse(
-                start, end, inbound, sold, disposed, adjusted, disposalRate(sold, disposed), rows);
+                range.start(), range.end(), inbound, sold, disposed, adjusted, disposalRate(sold, disposed), rows);
     }
 
     private ProductStatsResponse toRow(Product product, Map<LedgerType, Integer> quantities) {
