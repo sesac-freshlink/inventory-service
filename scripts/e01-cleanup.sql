@@ -33,6 +33,25 @@ SET l.reserved_quantity = l.reserved_quantity - r.reserved,
     l.updated_at        = NOW(3)
 WHERE l.store_id = @store_id;
 
+-- 1-1. 고객용 재고 조회 표(store_product_stock)도 같은 규칙으로 다시 계산한다.
+--      lot을 SQL로 직접 고치면 조회 표가 따라오지 않는다(앱은 StockChangePublisher가 같은 트랜잭션에서 한다)
+UPDATE store_product_stock s
+JOIN (
+    SELECT store_id,
+           product_id,
+           COALESCE(SUM(CASE WHEN expiry_date > CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '+09:00')
+                             THEN quantity - reserved_quantity ELSE 0 END), 0) AS available_quantity,
+           MIN(CASE WHEN expiry_date > CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '+09:00')
+                     AND quantity > reserved_quantity THEN expiry_date END) AS valid_until
+    FROM inventory_lot
+    WHERE store_id = @store_id
+    GROUP BY store_id, product_id
+) l ON l.store_id = s.store_id AND l.product_id = s.product_id
+SET s.available_quantity = l.available_quantity,
+    s.valid_until        = l.valid_until,
+    s.updated_at         = NOW(3)
+WHERE s.store_id = @store_id;
+
 -- 2. 시험 예약 행을 지운다 (RESERVED·RELEASED만. 실물이 바뀐 CONFIRMED는 남긴다)
 DELETE r
 FROM reservation r

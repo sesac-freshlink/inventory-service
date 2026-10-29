@@ -11,6 +11,9 @@ app:
     max-receive-count: ${QUEUE_MAX_RECEIVE_COUNT:3}
   expiry:
     cron: ${EXPIRY_CRON:0 0 0 * * *}
+  store-stock:
+    # 고객용 재고 조회 표에서 값이 맞는 시각이 지난 행을 다시 계산하는 간격. 그 사이 그 상품은 품절로 보인다
+    refresh-delay-ms: ${STORE_STOCK_REFRESH_MS:60000}
 
 freshlink:
   messaging:
