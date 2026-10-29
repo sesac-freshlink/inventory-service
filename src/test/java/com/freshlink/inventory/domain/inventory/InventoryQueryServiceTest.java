@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import com.freshlink.inventory.domain.memo.ProductMemoRepository;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
 import com.freshlink.inventory.domain.product.StoreProductResponse;
@@ -45,6 +46,9 @@ class InventoryQueryServiceTest {
     @Mock
     StoreProductStockRepository storeProductStockRepository;
 
+    @Mock
+    ProductMemoRepository productMemoRepository;
+
     private InventoryQueryService service;
 
     @BeforeEach
@@ -59,6 +63,7 @@ class InventoryQueryServiceTest {
                 calculationService,
                 safetyStockRepository,
                 storeProductStockRepository,
+                productMemoRepository,
                 clock
         );
     }

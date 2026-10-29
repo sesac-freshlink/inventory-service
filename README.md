@@ -55,7 +55,7 @@ flowchart LR
 
 | ID | 기능 | API / 방식 | 완료 기준 |
 | --- | --- | --- | --- |
-| S-10 | 재고 목록 | `GET /owner/inventory` | 상품별 총 수량·예약 수량·구매 가능 수량. `safetyStock`·`lowStock`(구매 가능 < 안전재고) |
+| S-10 | 재고 목록 | `GET /owner/inventory` | 상품별 총 수량·예약 수량·구매 가능 수량. `safetyStock`·`lowStock`(구매 가능 < 안전재고), `hasMemo`(상품 메모 있음) |
 | S-11 | lot별 재고 | `GET /owner/inventory/{productId}/lots` | 유통기한별 수량 |
 | S-13 | 변동 이력 | `GET /owner/inventory/ledger` | 이력 합계가 현재 재고와 같다 |
 | S-15 | 실시간 반영 | `GET /owner/inventory` (점주 화면이 3초마다 조회) | 결제·입고·폐기 후 3초 안에 새로고침 없이 갱신 |
@@ -67,6 +67,7 @@ flowchart LR
 | S-40 | 안전재고 설정 | `GET /owner/inventory/safety-stocks` (상품 전체), `PUT /owner/inventory/safety-stocks/{productId}` 본문 `{safetyStock}`(0~999). 오류: 400 `VALIDATION_ERROR`, 404 `PRODUCT_NOT_FOUND` | 정하지 않은 상품은 기본값 5. 0이면 부족으로 표시하지 않는다. 재고를 바꾸지 않아 쪽지를 거치지 않는다 |
 | S-14 | 재고 수동 조정·실사 | `POST /owner/inventory/adjustments` 본문 `{lotId, delta, reason, memo?}` → **201** `{adjustmentId, lotId, delta, quantityBefore, quantityAfter}`. `delta` −999~999(0 제외), `reason` COUNT·DAMAGE·LOSS·OTHER. 헤더 `X-Store-Id`·`X-User-Id`. 오류: 404 `LOT_NOT_FOUND`, 403 `LOT_NOT_IN_STORE`, 400 `VALIDATION_ERROR`·`INVALID_QUANTITY`(0), 409 `BELOW_RESERVED`(예약 수량 아래로), 409 `LOT_CHANGED`(쪽지 처리와 겹침). `GET /owner/inventory/adjustments`는 최신순 최근 100건 | 쪽지를 거치지 않고 바로 lot 수량 변경 + 조정 기록 + 원장 ADJUST(±). 겹침은 낙관적 락으로 찾는다(2장) |
 | S-42 | 판매·폐기 통계 | `GET /owner/inventory/stats` (선택 쿼리 `from`·`to` 한국 날짜, 둘 다 포함. `to`를 빼면 오늘, `from`을 빼면 `to`까지 7일). 오류: 400 `INVALID_DATE_RANGE` | 원장을 상품·종류별로 `GROUP BY`해 입고·판매·폐기 수량, 조정 합계(±), 폐기율(폐기 ÷ (판매 + 폐기))을 준다. 금액은 order 몫이라 수량만 |
+| 메모 | 점주 상품 메모 | `GET /owner/inventory/memos`(메모 있는 상품만, 최근 수정 순), `PUT /owner/inventory/memos/{productId}` 본문 `{content, version?}` → 200 `{productId, productCode, name, category, content, version, updatedAt}`, `DELETE /owner/inventory/memos/{productId}?version=` → 204 | 상품 하나에 메모 하나(200자), 처음 저장할 때 생긴다. 처음 만들 때는 `version` 없이, 고칠·지울 때는 읽은 `version`을 보낸다. 그 사이 다른 화면이 바꿨으면 409 `MEMO_CHANGED`(낙관적 락 `@Version`). 빈 내용 400, 없는 상품 404, 없는 메모 삭제는 204 |
 | U-10 | 점포 상품 목록 | `GET /stores/{storeId}/products` | 상품 30개 전부. 입고가 없는 상품·점포도 `availableQuantity 0`, `soldOut true`로 나온다. `imageUrl`은 없으면 null. 수량은 lot을 합산하지 않고 고객용 재고 조회 표(`store_product_stock`)에서 읽는다(5장, CQRS) |
 | E-01 | 점포별 순서 처리 (구현됨) | FIFO 큐 소비. RESERVE(FEFO 예약 → RESERVED/RESERVE_FAILED), CONFIRM, RELEASE, DISPOSE, INBOUND | 동시 예약 100건에도 재고가 음수가 되지 않는다 |
 | E-09 | 유통기한 스케줄러 (구현됨) | `app.expiry.cron`(기본 자정) + ShedLock `lotStatusJob` | 주기마다 임박·경과 상태 갱신 |
@@ -87,6 +88,7 @@ API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gatew
 | `adjustment` | id, store_id, lot_id, delta, quantity_before, quantity_after, reason, memo, adjusted_by, created_at |
 | `inbound` | id, shipment_id(유니크), store_id, received_at |
 | `safety_stock` | id, store_id, product_id, quantity(0~999), created_at, updated_at. (store_id, product_id) 유니크 |
+| `product_memo` | id, store_id, product_id, content(200자), version(낙관적 락), created_at, updated_at. (store_id, product_id) 유니크 |
 | `store_product_stock` | id, store_id, product_id, available_quantity, valid_until, updated_at. (store_id, product_id) 유니크. 고객용 재고 조회 표(CQRS) |
 | `outbox`, `processed_message` | common 모듈이 쓰는 표 |
 | `shedlock` | 스케줄러·Outbox 발행기 잠금 |
@@ -136,6 +138,7 @@ inventory-service/
 │       ├── disposal/     # 폐기
 │       ├── adjustment/   # 수동 조정·실사(S-14)
 │       ├── safetystock/  # 안전재고 설정(S-40)
+│       ├── memo/         # 점주 상품 메모
 │       ├── stats/        # 판매·폐기 통계(S-42)
 │       ├── storestock/   # 고객용 재고 조회 표(CQRS): 이벤트·받는 곳·정리
 │       └── scheduler/    # 유통기한 스케줄러, 조회 표 정리(1분)
@@ -149,7 +152,7 @@ inventory-service/
 │   ├── TestcontainersConfiguration.java        # 테스트·로컬 실행용 MySQL 8.4 컨테이너
 │   ├── TestInventoryServiceApplication.java    # IntelliJ에서 DB 없이 실행할 때 이걸 Run
 │   ├── FixedClockConfiguration.java            # 지금 시각 고정(2026-10-25 12:00 KST). 쓰는 테스트끼리 컨테이너 하나를 같이 쓴다
-│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest, SafetyStockTest, InventoryStatsTest, AdjustmentTest, FifoExperimentTest, StoreStockTest  # 쪽지 처리·API·스케줄러·조회 표
+│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest, SafetyStockTest, InventoryStatsTest, AdjustmentTest, FifoExperimentTest, StoreStockTest, ProductMemoTest  # 쪽지 처리·API·스케줄러·조회 표
 │   └── common/error/GlobalExceptionHandlerTest.java   # 오류 응답 모양 (DB 없이)
 ├── scripts/                           # 동시 예약 100건 투입(e01-reserve-100.ps1)·집계·정리 SQL
 └── docs/                              # dev 확인·실패 시나리오·동시성 시험 절차
