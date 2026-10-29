@@ -31,7 +31,7 @@ class StoreProductControllerTest {
 
     @Test
     void 고객_상품목록은_헤더없이_200으로_응답한다() throws Exception {
-        when(inventoryQueryService.getStoreProducts(1L))
+        when(inventoryQueryService.getStoreProducts(1L, null))
                 .thenReturn(List.of(
                         new StoreProductResponse(
                                 15L,
@@ -70,7 +70,7 @@ class StoreProductControllerTest {
 
     @Test
     void 입고가_없는_점포도_상품전체를_품절로_응답한다() throws Exception {
-        when(inventoryQueryService.getStoreProducts(999L))
+        when(inventoryQueryService.getStoreProducts(999L, null))
                 .thenReturn(List.of(
                         new StoreProductResponse(
                                 2L,
@@ -89,5 +89,17 @@ class StoreProductControllerTest {
                 .andExpect(jsonPath("$[0].productId").value(2))
                 .andExpect(jsonPath("$[0].availableQuantity").value(0))
                 .andExpect(jsonPath("$[0].soldOut").value(true));
+    }
+
+    @Test
+    void 검색어를_서비스에_넘기고_50자를_넘으면_400이다() throws Exception {
+        when(inventoryQueryService.getStoreProducts(1L, "우유")).thenReturn(List.of());
+
+        mockMvc.perform(get("/stores/1/products").param("q", "우유"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isArray());
+        mockMvc.perform(get("/stores/1/products").param("q", "가".repeat(51)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"));
     }
 }

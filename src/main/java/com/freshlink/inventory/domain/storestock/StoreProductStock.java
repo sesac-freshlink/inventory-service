@@ -45,7 +45,12 @@ public class StoreProductStock {
      * 정리 작업이 다시 계산할 때까지 품절(0)로 본다. 실제보다 적게 보일 수는 있어도 많게 보이지는 않는다
      */
     public int availableAt(LocalDateTime now) {
-        if (validUntil == null || !validUntil.isAfter(now)) {
+        return availableAt(availableQuantity, validUntil, now);
+    }
+
+    /** 행이 없으면(수량 null) 0. 값이 맞는 시각이 없거나 지났으면 0 */
+    static int availableAt(Integer availableQuantity, LocalDateTime validUntil, LocalDateTime now) {
+        if (availableQuantity == null || validUntil == null || !validUntil.isAfter(now)) {
             return 0;
         }
         return availableQuantity;

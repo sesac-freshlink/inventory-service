@@ -1,5 +1,6 @@
 package com.freshlink.inventory.domain.inventory;
 
+import com.freshlink.inventory.common.search.LikePattern;
 import com.freshlink.inventory.domain.safetystock.SafetyStock;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -114,14 +115,9 @@ public class InventorySearchRepository {
                 .addValue("imminentUntil", now.plusHours(24))
                 .addValue("defaultSafetyStock", SafetyStock.DEFAULT_QUANTITY);
         if (condition.q() != null) {
-            params.addValue("q", "%" + escapeLike(condition.q()) + "%");
+            params.addValue("q", LikePattern.contains(condition.q()));
         }
         return params;
-    }
-
-    /** 검색어의 %, _ 를 글자 그대로 찾게 한다 (MySQL LIKE 기본 이스케이프 문자 \) */
-    private static String escapeLike(String q) {
-        return q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     private static final RowMapper<InventorySummaryResponse> ROW_MAPPER = (rs, rowNum) -> {

@@ -305,7 +305,7 @@ class StoreStockTest {
     }
 
     private StoreProductResponse customerView(long storeId, long productId) {
-        return inventoryQueryService.getStoreProducts(storeId).stream()
+        return inventoryQueryService.getStoreProducts(storeId, null).stream()
                 .filter(p -> p.productId().equals(productId))
                 .findFirst()
                 .orElseThrow();
