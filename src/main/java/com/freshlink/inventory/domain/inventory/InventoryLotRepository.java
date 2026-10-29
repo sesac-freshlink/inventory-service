@@ -31,6 +31,28 @@ public interface InventoryLotRepository extends JpaRepository<InventoryLot, Long
             LocalDateTime expiryDate
     );
 
+    /**
+     * 유통기한 달력. 기한이 [from, toExclusive) 안에 끝나고 수량이 남은 lot을 상품과 묶어 기한 → 상품명 순으로.
+     * 점포·기한 조건은 idx_lot_store_expiry 인덱스를 탄다
+     */
+    @Query("""
+            SELECT new com.freshlink.inventory.domain.inventory.ExpiryLotRow(
+                l.id, p.id, p.productCode, p.name, l.expiryDate, l.quantity, l.reservedQuantity
+            )
+            FROM InventoryLot l
+            JOIN Product p ON p.id = l.productId
+            WHERE l.storeId = :storeId
+              AND l.quantity > 0
+              AND l.expiryDate >= :from
+              AND l.expiryDate < :toExclusive
+            ORDER BY l.expiryDate, p.name, l.id
+            """)
+    List<ExpiryLotRow> findExpiringBetween(
+            @Param("storeId") Long storeId,
+            @Param("from") LocalDateTime from,
+            @Param("toExclusive") LocalDateTime toExclusive
+    );
+
     /** 스케줄러(E-09). 수량이 남은 경과 lot을 EXPIRED로. 바뀐 건수를 돌려준다 */
     @Modifying(clearAutomatically = true)
     @Query("""
