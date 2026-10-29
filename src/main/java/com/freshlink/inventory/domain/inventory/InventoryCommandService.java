@@ -7,6 +7,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -31,6 +33,7 @@ import com.freshlink.inventory.domain.inbound.Inbound;
 import com.freshlink.inventory.domain.inbound.InboundRepository;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
+import com.freshlink.inventory.domain.storestock.StockChangePublisher;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,6 +54,7 @@ public class InventoryCommandService {
     private final ReservationRepository reservationRepository;
     private final DisposalRepository disposalRepository;
     private final OutboxWriter outboxWriter;
+    private final StockChangePublisher stockChanges;
     private final String resultsQueue;
     private final Clock clock;
 
@@ -63,6 +67,7 @@ public class InventoryCommandService {
             ReservationRepository reservationRepository,
             DisposalRepository disposalRepository,
             OutboxWriter outboxWriter,
+            StockChangePublisher stockChanges,
             @Value("${app.queue.results}") String resultsQueue,
             Clock clock
     ) {
@@ -74,6 +79,7 @@ public class InventoryCommandService {
         this.reservationRepository = reservationRepository;
         this.disposalRepository = disposalRepository;
         this.outboxWriter = outboxWriter;
+        this.stockChanges = stockChanges;
         this.resultsQueue = resultsQueue;
         this.clock = clock;
     }
@@ -109,8 +115,9 @@ public class InventoryCommandService {
             return;
         }
 
+        Set<Long> productIds = new TreeSet<>();
         for (InboundItem item : message.items()) {
-            processInboundItem(message, item);
+            productIds.add(processInboundItem(message, item));
         }
 
         inboundRepository.save(Inbound.create(
@@ -118,9 +125,11 @@ public class InventoryCommandService {
                 message.storeId(),
                 LocalDateTime.now(clock)
         ));
+        stockChanges.publish(message.storeId(), productIds);
     }
 
-    private void processInboundItem(
+    /** lot에 더하고 원장을 남긴다. 고객용 조회 표를 다시 계산하도록 상품 ID를 돌려준다 */
+    private Long processInboundItem(
             InboundMessage message,
             InboundItem item
     ) {
@@ -173,6 +182,7 @@ public class InventoryCommandService {
                 item.quantity(),
                 message.shipmentId()
         ));
+        return product.getId();
     }
 
     private void handleReserve(ReserveMessage message) {
@@ -251,6 +261,7 @@ public class InventoryCommandService {
             ));
             remaining -= quantity;
         }
+        stockChanges.publish(message.storeId(), List.of(message.productId()));
 
         outboxWriter.save(resultsQueue, ReservedMessage.of(
                 message.orderId(),
@@ -367,6 +378,7 @@ public class InventoryCommandService {
                     String.valueOf(message.orderId())
             ));
         }
+        stockChanges.publish(message.storeId(), productIdsOf(lots));
 
         log.info(
                 "CONFIRM 처리: orderId={}, lots={}",
@@ -397,6 +409,7 @@ public class InventoryCommandService {
             lots.get(reservation.getLotId()).release(reservation.getQuantity());
             reservation.release();
         }
+        stockChanges.publish(message.storeId(), productIdsOf(lots));
 
         log.info(
                 "RELEASE 처리: orderId={}, reason={}, lots={}",
@@ -448,6 +461,7 @@ public class InventoryCommandService {
                 String.valueOf(disposal.getId())
         ));
         disposal.done(now);
+        stockChanges.publish(lot.getStoreId(), List.of(lot.getProductId()));
 
         log.info(
                 "DISPOSE 처리: disposalId={}, lotId={}, quantity={}",
@@ -455,6 +469,14 @@ public class InventoryCommandService {
                 lot.getId(),
                 quantity
         );
+    }
+
+    /** 확정·해제가 건드린 lot들의 상품. 고객용 조회 표를 다시 계산할 대상 */
+    private static List<Long> productIdsOf(Map<Long, InventoryLot> lots) {
+        return lots.values().stream()
+                .map(InventoryLot::getProductId)
+                .distinct()
+                .toList();
     }
 
     /**

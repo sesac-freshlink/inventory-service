@@ -18,6 +18,8 @@ import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
 import com.freshlink.inventory.domain.product.StoreProductResponse;
 import com.freshlink.inventory.domain.safetystock.SafetyStockRepository;
+import com.freshlink.inventory.domain.storestock.StoreProductStock;
+import com.freshlink.inventory.domain.storestock.StoreProductStockRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -40,6 +42,9 @@ class InventoryQueryServiceTest {
     @Mock
     SafetyStockRepository safetyStockRepository;
 
+    @Mock
+    StoreProductStockRepository storeProductStockRepository;
+
     private InventoryQueryService service;
 
     @BeforeEach
@@ -53,6 +58,7 @@ class InventoryQueryServiceTest {
                 productRepository,
                 calculationService,
                 safetyStockRepository,
+                storeProductStockRepository,
                 clock
         );
     }
@@ -274,61 +280,22 @@ class InventoryQueryServiceTest {
     }
 
     @Test
-    void 고객_상품목록은_상품전체를_반환하고_경과lot은_구매가능수량에서_제외한다() {
-        Product ramen = mock(Product.class);
-        when(ramen.getId()).thenReturn(15L);
-        when(ramen.getName()).thenReturn("매운 컵라면 115g");
-        when(ramen.getCategory()).thenReturn("라면");
-        when(ramen.getPrice()).thenReturn(1700L);
+    void 고객_상품목록은_상품전체를_반환하고_구매가능수량은_조회표에서_읽는다() {
+        Product ramen = product(15L, "매운 컵라면 115g", "라면", 1700L);
+        Product water = product(2L, "생수 500ml", "음료", 1000L);
+        Product chips = product(8L, "감자칩", "과자", 1500L);
 
-        Product water = mock(Product.class);
-        when(water.getId()).thenReturn(2L);
-        when(water.getName()).thenReturn("생수 500ml");
-        when(water.getCategory()).thenReturn("음료");
-        when(water.getPrice()).thenReturn(1000L);
-
-        Product chips = mock(Product.class);
-        when(chips.getId()).thenReturn(8L);
-        when(chips.getName()).thenReturn("감자칩");
-        when(chips.getCategory()).thenReturn("과자");
-        when(chips.getPrice()).thenReturn(1500L);
-
-        // now = 2026-10-20 15:00 KST
-
-        // 컵라면: 유효 lot 8개 중 3개 사용 불가 → 구매 가능 5
-        InventoryLot ramenAvailable = lot(
-                15L,
-                LocalDateTime.of(2026, 10, 20, 16, 0),
-                8,
-                3
-        );
-
-        InventoryLot ramenExpired = mock(InventoryLot.class);
-        when(ramenExpired.getProductId()).thenReturn(15L);
-        when(ramenExpired.getExpiryDate())
-                .thenReturn(LocalDateTime.of(2026, 10, 20, 14, 0));
-
-        InventoryLot waterExpired = mock(InventoryLot.class);
-        when(waterExpired.getProductId()).thenReturn(2L);
-        when(waterExpired.getExpiryDate())
-                .thenReturn(LocalDateTime.of(2026, 10, 20, 15, 0));
-
-        // 감자칩: 이 점포에 lot 자체가 없음
-
-        when(inventoryLotRepository.findByStoreId(1L))
-                .thenReturn(List.of(
-                        ramenAvailable,
-                        ramenExpired,
-                        waterExpired
-                ));
-
+        // 값이 맞는 시각이 지났는지는 조회 표 행이 판단한다(StoreProductStock.availableAt)
+        StoreProductStock ramenStock = stock(15L, 5);
+        StoreProductStock waterStock = stock(2L, 0);
+        // 감자칩: 이 점포 조회 표에 행 자체가 없음
+        when(storeProductStockRepository.findByStoreId(1L))
+                .thenReturn(List.of(ramenStock, waterStock));
         when(productRepository.findAll())
                 .thenReturn(List.of(ramen, water, chips));
 
         List<StoreProductResponse> result =
                 service.getStoreProducts(1L);
-
-        assertThat(result).hasSize(3);
 
         // 상품명 오름차순
         assertThat(result)
@@ -338,37 +305,21 @@ class InventoryQueryServiceTest {
                         "매운 컵라면 115g",
                         "생수 500ml"
                 );
-
-        StoreProductResponse chipsResponse = result.get(0);
-        assertThat(chipsResponse.availableQuantity()).isZero();
-        assertThat(chipsResponse.soldOut()).isTrue();
-
-        StoreProductResponse ramenResponse = result.get(1);
-        assertThat(ramenResponse.availableQuantity()).isEqualTo(5);
-        assertThat(ramenResponse.soldOut()).isFalse();
-
-        StoreProductResponse waterResponse = result.get(2);
-        assertThat(waterResponse.availableQuantity()).isZero();
-        assertThat(waterResponse.soldOut()).isTrue();
+        assertThat(result)
+                .extracting(StoreProductResponse::availableQuantity, StoreProductResponse::soldOut)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(0, true),
+                        org.assertj.core.groups.Tuple.tuple(5, false),
+                        org.assertj.core.groups.Tuple.tuple(0, true)
+                );
     }
 
     @Test
-    void 점포lot이_하나도_없어도_고객_상품목록은_상품전체를_품절로_반환한다() {
-        Product ramen = mock(Product.class);
-        when(ramen.getId()).thenReturn(15L);
-        when(ramen.getName()).thenReturn("매운 컵라면 115g");
-        when(ramen.getCategory()).thenReturn("라면");
-        when(ramen.getPrice()).thenReturn(1700L);
-
-        Product water = mock(Product.class);
-        when(water.getId()).thenReturn(2L);
-        when(water.getName()).thenReturn("생수 500ml");
-        when(water.getCategory()).thenReturn("음료");
-        when(water.getPrice()).thenReturn(1000L);
-
-        when(inventoryLotRepository.findByStoreId(999L))
+    void 점포에_조회표_행이_하나도_없어도_고객_상품목록은_상품전체를_품절로_반환한다() {
+        Product ramen = product(15L, "매운 컵라면 115g", "라면", 1700L);
+        Product water = product(2L, "생수 500ml", "음료", 1000L);
+        when(storeProductStockRepository.findByStoreId(999L))
                 .thenReturn(List.of());
-
         when(productRepository.findAll())
                 .thenReturn(List.of(ramen, water));
 
@@ -381,5 +332,21 @@ class InventoryQueryServiceTest {
                     assertThat(response.availableQuantity()).isZero();
                     assertThat(response.soldOut()).isTrue();
                 });
+    }
+
+    private static Product product(Long id, String name, String category, Long price) {
+        Product product = mock(Product.class);
+        when(product.getId()).thenReturn(id);
+        when(product.getName()).thenReturn(name);
+        when(product.getCategory()).thenReturn(category);
+        when(product.getPrice()).thenReturn(price);
+        return product;
+    }
+
+    private static StoreProductStock stock(Long productId, int availableNow) {
+        StoreProductStock stock = mock(StoreProductStock.class);
+        when(stock.getProductId()).thenReturn(productId);
+        when(stock.availableAt(any())).thenReturn(availableNow);
+        return stock;
     }
 }

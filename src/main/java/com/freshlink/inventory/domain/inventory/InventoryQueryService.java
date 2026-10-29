@@ -16,6 +16,8 @@ import com.freshlink.inventory.domain.product.ProductRepository;
 import com.freshlink.inventory.domain.product.StoreProductResponse;
 import com.freshlink.inventory.domain.safetystock.SafetyStock;
 import com.freshlink.inventory.domain.safetystock.SafetyStockRepository;
+import com.freshlink.inventory.domain.storestock.StoreProductStock;
+import com.freshlink.inventory.domain.storestock.StoreProductStockRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +31,7 @@ public class InventoryQueryService {
     private final ProductRepository productRepository;
     private final InventoryCalculationService calculationService;
     private final SafetyStockRepository safetyStockRepository;
+    private final StoreProductStockRepository storeProductStockRepository;
     private final Clock clock;
 
     public InventoryQueryService(
@@ -36,12 +39,14 @@ public class InventoryQueryService {
             ProductRepository productRepository,
             InventoryCalculationService calculationService,
             SafetyStockRepository safetyStockRepository,
+            StoreProductStockRepository storeProductStockRepository,
             Clock clock
     ) {
         this.inventoryLotRepository = inventoryLotRepository;
         this.productRepository = productRepository;
         this.calculationService = calculationService;
         this.safetyStockRepository = safetyStockRepository;
+        this.storeProductStockRepository = storeProductStockRepository;
         this.clock = clock;
     }
 
@@ -247,33 +252,27 @@ public class InventoryQueryService {
         );
     }
 
+    /**
+     * U-10 고객 상품 목록. lot을 합산하지 않고 고객용 재고 조회 표(store_product_stock)만 읽는다(CQRS).
+     * 조회 표는 재고를 바꾸는 처리가 같은 트랜잭션에서 다시 계산해 둔다. 값이 맞는 시각이 지난 행은 품절로 본다
+     */
     public List<StoreProductResponse> getStoreProducts(Long storeId) {
         LocalDateTime now = LocalDateTime.now(clock);
 
-        // 입고가 한 번도 없는 점포도 상품 30개를 전부 품절로 내린다(명세 4장 U-10). lot이 없는 점포와 없는 점포를 구분하지 않는다
-        List<InventoryLot> lots =
-                inventoryLotRepository.findByStoreId(storeId);
-
-        Map<Long, List<InventoryLot>> lotsByProduct =
-                lots.stream()
-                        .collect(Collectors.groupingBy(
-                                InventoryLot::getProductId
+        // 입고가 한 번도 없는 점포도 상품 30개를 전부 품절로 내린다(명세 4장 U-10). 조회 표에 행이 없는 상품은 0이다
+        Map<Long, StoreProductStock> stockByProduct =
+                storeProductStockRepository.findByStoreId(storeId)
+                        .stream()
+                        .collect(Collectors.toMap(
+                                StoreProductStock::getProductId,
+                                Function.identity()
                         ));
 
         return productRepository.findAll()
                 .stream()
                 .map(product -> {
-                    List<InventoryLot> productLots =
-                            lotsByProduct.getOrDefault(
-                                    product.getId(),
-                                    List.of()
-                            );
-
-                    int availableQuantity =
-                            calculationService.calculateAvailableQuantity(
-                                    productLots,
-                                    now
-                            );
+                    StoreProductStock stock = stockByProduct.get(product.getId());
+                    int availableQuantity = stock == null ? 0 : stock.availableAt(now);
 
                     return new StoreProductResponse(
                             product.getId(),

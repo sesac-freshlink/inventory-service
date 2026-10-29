@@ -67,7 +67,7 @@ flowchart LR
 | S-40 | 안전재고 설정 | `GET /owner/inventory/safety-stocks` (상품 전체), `PUT /owner/inventory/safety-stocks/{productId}` 본문 `{safetyStock}`(0~999). 오류: 400 `VALIDATION_ERROR`, 404 `PRODUCT_NOT_FOUND` | 정하지 않은 상품은 기본값 5. 0이면 부족으로 표시하지 않는다. 재고를 바꾸지 않아 쪽지를 거치지 않는다 |
 | S-14 | 재고 수동 조정·실사 | `POST /owner/inventory/adjustments` 본문 `{lotId, delta, reason, memo?}` → **201** `{adjustmentId, lotId, delta, quantityBefore, quantityAfter}`. `delta` −999~999(0 제외), `reason` COUNT·DAMAGE·LOSS·OTHER. 헤더 `X-Store-Id`·`X-User-Id`. 오류: 404 `LOT_NOT_FOUND`, 403 `LOT_NOT_IN_STORE`, 400 `VALIDATION_ERROR`·`INVALID_QUANTITY`(0), 409 `BELOW_RESERVED`(예약 수량 아래로), 409 `LOT_CHANGED`(쪽지 처리와 겹침). `GET /owner/inventory/adjustments`는 최신순 최근 100건 | 쪽지를 거치지 않고 바로 lot 수량 변경 + 조정 기록 + 원장 ADJUST(±). 겹침은 낙관적 락으로 찾는다(2장) |
 | S-42 | 판매·폐기 통계 | `GET /owner/inventory/stats` (선택 쿼리 `from`·`to` 한국 날짜, 둘 다 포함. `to`를 빼면 오늘, `from`을 빼면 `to`까지 7일). 오류: 400 `INVALID_DATE_RANGE` | 원장을 상품·종류별로 `GROUP BY`해 입고·판매·폐기 수량, 조정 합계(±), 폐기율(폐기 ÷ (판매 + 폐기))을 준다. 금액은 order 몫이라 수량만 |
-| U-10 | 점포 상품 목록 | `GET /stores/{storeId}/products` | 상품 30개 전부. 입고가 없는 상품·점포도 `availableQuantity 0`, `soldOut true`로 나온다. `imageUrl`은 없으면 null |
+| U-10 | 점포 상품 목록 | `GET /stores/{storeId}/products` | 상품 30개 전부. 입고가 없는 상품·점포도 `availableQuantity 0`, `soldOut true`로 나온다. `imageUrl`은 없으면 null. 수량은 lot을 합산하지 않고 고객용 재고 조회 표(`store_product_stock`)에서 읽는다(5장, CQRS) |
 | E-01 | 점포별 순서 처리 (구현됨) | FIFO 큐 소비. RESERVE(FEFO 예약 → RESERVED/RESERVE_FAILED), CONFIRM, RELEASE, DISPOSE, INBOUND | 동시 예약 100건에도 재고가 음수가 되지 않는다 |
 | E-09 | 유통기한 스케줄러 (구현됨) | `app.expiry.cron`(기본 자정) + ShedLock `lotStatusJob` | 주기마다 임박·경과 상태 갱신 |
 
@@ -87,6 +87,7 @@ API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gatew
 | `adjustment` | id, store_id, lot_id, delta, quantity_before, quantity_after, reason, memo, adjusted_by, created_at |
 | `inbound` | id, shipment_id(유니크), store_id, received_at |
 | `safety_stock` | id, store_id, product_id, quantity(0~999), created_at, updated_at. (store_id, product_id) 유니크 |
+| `store_product_stock` | id, store_id, product_id, available_quantity, valid_until, updated_at. (store_id, product_id) 유니크. 고객용 재고 조회 표(CQRS) |
 | `outbox`, `processed_message` | common 모듈이 쓰는 표 |
 | `shedlock` | 스케줄러·Outbox 발행기 잠금 |
 
@@ -95,6 +96,7 @@ API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gatew
 - **reservation:** RESERVE로 `RESERVED` → CONFIRM이면 `CONFIRMED`(lot 실물·예약 감소, 원장 SALE) / RELEASE면 `RELEASED`(예약만 복원, 원장 없음). 확정·해제된 예약은 다시 바뀌지 않는다.
 - **disposal:** `POST /owner/disposals`로 `REQUESTED` → DISPOSE 쪽지 처리 때 `DONE`(lot 수량 감소, 원장 DISPOSE) / 폐기 가능 수량이 모자라면 `SKIPPED`(재고 그대로). 결과는 `GET /owner/disposals`(S-33)로 본다.
 - **ledger:** 실물이 바뀔 때만 한 줄 추가한다. 입고 `+n`(ref_id = shipmentId), 판매 `−n`(orderId), 폐기 `−n`(disposalId), 조정 `±n`(adjustmentId). lot별 합계 = `inventory_lot.quantity`.
+- **store_product_stock:** 재고를 바꾸는 처리(입고·예약·확정·해제·폐기·수동 조정)가 같은 트랜잭션 끝에서 그 상품의 구매 가능 수량을 lot에서 다시 계산해 넣는다(`StockChangePublisher` → `StockChanged` → `StoreStockProjector`). `valid_until`은 이 값이 맞는 마지막 시각(남은 재고가 있는 미경과 lot 중 가장 빠른 기한)이고, 지나면 고객 목록은 품절로 본다. 1분 정리 작업(`StoreStockRefreshScheduler`)이 그런 행을 다시 계산한다. 설계와 이유는 [docs/고객용-재고-조회-표-CQRS.md](docs/고객용-재고-조회-표-CQRS.md).
 - **inventory_lot.status:** 스케줄러가 갱신하는 표시용(NORMAL → IMMINENT → EXPIRED). 판단에는 이 값을 쓰지 않고 그때마다 `expiry_date`와 지금 시각으로 계산한다. 판매(구매 가능 수량·예약)는 `expiry_date > 지금`인 lot만, 폐기 요청은 계산한 상태가 임박(24시간 이내)·경과인 lot만 받는다(정상 lot은 409 `NOT_DISPOSABLE`).
 
 테이블은 **Flyway 마이그레이션**으로 만든다. `src/main/resources/db/migration/V1__init.sql`부터 순서대로 두고, 앱이 뜰 때 Flyway가 아직 안 적용된 파일을 순서대로 실행한다. JPA `ddl-auto`로 테이블을 만들지 않는다. 한 번 적용된 파일은 고치지 않고 `V2__...`처럼 새 파일을 추가한다.
@@ -106,6 +108,7 @@ API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gatew
 - **동시 예약 시험:** [docs/동시성-테스트-절차.md](docs/동시성-테스트-절차.md)와 `scripts/e01-*`.
 - **상품 이미지:** `product.image_url`은 V5가 더미 상품 30개에 넣은 CU 편의점 사이트(cu.bgfretail.com)의 상품 이미지 주소다. 시연용이고 상업적으로 쓰지 않는다. 주소가 막히면 화면이 자리표시를 보여 준다.
 - **왜 FIFO 그룹과 낙관적 락인가:** [docs/동시성-설계-FIFO와-낙관적-락.md](docs/동시성-설계-FIFO와-낙관적-락.md). 줄을 세우지 않으면 무엇이 깨지는지 `FifoExperimentTest`로 직접 본다.
+- **고객용 재고 조회 표(CQRS):** [docs/고객용-재고-조회-표-CQRS.md](docs/고객용-재고-조회-표-CQRS.md). lot 수량을 바꾸는 코드는 끝에서 `StockChangePublisher.publish`를 부른다. SQL로 lot을 직접 고치면 조회 표가 따라오지 않는다.
 - **dev에서 한 번에 확인할 것:** [docs/dev-확인-절차.md](docs/dev-확인-절차.md).
 - **쪽지 처리 지표:** `/actuator/prometheus`에 아래 두 가지가 나온다. Grafana에서 보는 식은 [docs/동시성-테스트-절차.md](docs/동시성-테스트-절차.md) 5-1.
 
@@ -134,7 +137,8 @@ inventory-service/
 │       ├── adjustment/   # 수동 조정·실사(S-14)
 │       ├── safetystock/  # 안전재고 설정(S-40)
 │       ├── stats/        # 판매·폐기 통계(S-42)
-│       └── scheduler/    # 유통기한 스케줄러
+│       ├── storestock/   # 고객용 재고 조회 표(CQRS): 이벤트·받는 곳·정리
+│       └── scheduler/    # 유통기한 스케줄러, 조회 표 정리(1분)
 ├── src/main/resources/
 │   ├── application.yml                # 공통. 값은 환경 변수
 │   ├── application-dev.yml            # 로그 레벨만 다름
@@ -145,7 +149,7 @@ inventory-service/
 │   ├── TestcontainersConfiguration.java        # 테스트·로컬 실행용 MySQL 8.4 컨테이너
 │   ├── TestInventoryServiceApplication.java    # IntelliJ에서 DB 없이 실행할 때 이걸 Run
 │   ├── FixedClockConfiguration.java            # 지금 시각 고정(2026-10-25 12:00 KST). 쓰는 테스트끼리 컨테이너 하나를 같이 쓴다
-│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest, SafetyStockTest, InventoryStatsTest, AdjustmentTest, FifoExperimentTest  # 쪽지 처리·API·스케줄러
+│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest, SafetyStockTest, InventoryStatsTest, AdjustmentTest, FifoExperimentTest, StoreStockTest  # 쪽지 처리·API·스케줄러·조회 표
 │   └── common/error/GlobalExceptionHandlerTest.java   # 오류 응답 모양 (DB 없이)
 ├── scripts/                           # 동시 예약 100건 투입(e01-reserve-100.ps1)·집계·정리 SQL
 └── docs/                              # dev 확인·실패 시나리오·동시성 시험 절차
@@ -189,6 +193,8 @@ logistics-simulator로 입고 쪽지를 보내고 `GET /owner/inventory/ledger`�
 | `DB_PASSWORD` | DB 비밀번호(비밀값) | 비어 있음 |
 | `QUEUE_PREFIX` | 큐 이름 앞부분. `app.queue.commands` = `<접두사>inventory-commands.fifo`, `app.queue.results` = `<접두사>inventory-results`. PC는 개인 큐(`dev-<이름>-`) | `dev-` |
 | `EXPIRY_CRON` | 유통기한 스케줄러 주기(`app.expiry.cron`, Spring cron 6자리, Asia/Seoul) | `0 0 0 * * *`(자정) |
+| `STORE_STOCK_REFRESH_MS` | 고객용 조회 표 정리 간격(`app.store-stock.refresh-delay-ms`, 밀리초) | `60000`(1분) |
+| `QUEUE_MAX_RECEIVE_COUNT` | 실패 로그에 "DLQ로 간다"를 붙이는 기준(`app.queue.max-receive-count`). infra `maxReceiveCount`와 같게 둔다 | `3` |
 | `AWS_REGION` | SQS 리전 | `ap-northeast-2` |
 | `GITHUB_ACTOR`, `GITHUB_TOKEN` | **의존성을 받을 때.** 빌드와 `./gradlew bootRun`이 common 라이브러리를 GitHub Packages에서 받는다(`read:packages`). Gradle 캐시에 이미 있으면 실행 때는 쓰지 않는다 | 의존성 해석 실패(빌드·실행이 시작되지 않음) |
 
