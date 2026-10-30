@@ -30,6 +30,7 @@ import com.freshlink.common.outbox.OutboxWriter;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
 import com.freshlink.inventory.domain.disposal.Disposal;
 import com.freshlink.inventory.domain.disposal.DisposalRepository;
+import com.freshlink.inventory.domain.firstcome.FirstComeService;
 import com.freshlink.inventory.domain.inbound.Inbound;
 import com.freshlink.inventory.domain.inbound.InboundRepository;
 import com.freshlink.inventory.domain.product.Product;
@@ -56,6 +57,7 @@ public class InventoryCommandService {
     private final DisposalRepository disposalRepository;
     private final OutboxWriter outboxWriter;
     private final StockChangePublisher stockChanges;
+    private final FirstComeService firstComeService;
     private final String resultsQueue;
     private final Clock clock;
 
@@ -69,6 +71,7 @@ public class InventoryCommandService {
             DisposalRepository disposalRepository,
             OutboxWriter outboxWriter,
             StockChangePublisher stockChanges,
+            FirstComeService firstComeService,
             @Value("${app.queue.results}") String resultsQueue,
             Clock clock
     ) {
@@ -81,6 +84,7 @@ public class InventoryCommandService {
         this.disposalRepository = disposalRepository;
         this.outboxWriter = outboxWriter;
         this.stockChanges = stockChanges;
+        this.firstComeService = firstComeService;
         this.resultsQueue = resultsQueue;
         this.clock = clock;
     }
@@ -229,6 +233,18 @@ public class InventoryCommandService {
         int availableQuantity = lots.stream()
                 .mapToInt(InventoryLot::availableQuantity)
                 .sum();
+        // 선착순 상품이면 한도에서 남은 만큼만 잡을 수 있다. 넘으면 재고 부족과 같은 결과(OUT_OF_STOCK)로 거절한다
+        Integer firstComeLeft = firstComeService.limitLeft(message.storeId(), message.productId());
+        if (firstComeLeft != null && firstComeLeft < availableQuantity) {
+            log.info(
+                    "RESERVE 선착순 한도 적용: orderId={}, productId={}, available={}, limitLeft={}",
+                    message.orderId(),
+                    message.productId(),
+                    availableQuantity,
+                    firstComeLeft
+            );
+            availableQuantity = firstComeLeft;
+        }
         if (availableQuantity < message.quantity()) {
             log.info(
                     "RESERVE 재고 부족: orderId={}, productId={}, quantity={}, available={}",
