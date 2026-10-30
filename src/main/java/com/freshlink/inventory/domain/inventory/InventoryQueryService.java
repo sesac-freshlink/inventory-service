@@ -10,14 +10,9 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import com.freshlink.common.error.BusinessException;
-import com.freshlink.inventory.common.search.LikePattern;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
-import com.freshlink.inventory.domain.product.StoreProductDetailResponse;
-import com.freshlink.inventory.domain.product.StoreProductResponse;
-import com.freshlink.inventory.domain.storestock.StoreProductRow;
-import com.freshlink.inventory.domain.storestock.StoreProductStockRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,7 +25,6 @@ public class InventoryQueryService {
     private final InventoryLotRepository inventoryLotRepository;
     private final ProductRepository productRepository;
     private final InventoryCalculationService calculationService;
-    private final StoreProductStockRepository storeProductStockRepository;
     private final InventorySearchRepository inventorySearchRepository;
     private final Clock clock;
 
@@ -38,14 +32,12 @@ public class InventoryQueryService {
             InventoryLotRepository inventoryLotRepository,
             ProductRepository productRepository,
             InventoryCalculationService calculationService,
-            StoreProductStockRepository storeProductStockRepository,
             InventorySearchRepository inventorySearchRepository,
             Clock clock
     ) {
         this.inventoryLotRepository = inventoryLotRepository;
         this.productRepository = productRepository;
         this.calculationService = calculationService;
-        this.storeProductStockRepository = storeProductStockRepository;
         this.inventorySearchRepository = inventorySearchRepository;
         this.clock = clock;
     }
@@ -187,54 +179,6 @@ public class InventoryQueryService {
                 lot.getQuantity(),
                 lot.getReservedQuantity(),
                 lot.getQuantity() - lot.getReservedQuantity()
-        );
-    }
-
-    /**
-     * U-10 고객 상품 목록. lot을 합산하지 않고 고객용 재고 조회 표(store_product_stock)만 읽는다(CQRS).
-     * 조회 표는 재고를 바꾸는 처리가 같은 트랜잭션에서 다시 계산해 둔다. 값이 맞는 시각이 지난 행은 품절로 본다.
-     * 상품과 조회 표를 LEFT JOIN 한 쿼리 한 번이고, q가 있으면 상품명으로 거른다(DB가 거르고 상품명 순으로 준다)
-     */
-    public List<StoreProductResponse> getStoreProducts(Long storeId, String q) {
-        LocalDateTime now = LocalDateTime.now(clock);
-
-        // 입고가 한 번도 없는 점포도 상품을 전부 품절로 내린다(명세 4장 U-10). 조회 표에 행이 없는 상품은 0이다
-        return storeProductStockRepository.findStoreProducts(storeId, LikePattern.contains(q))
-                .stream()
-                .map(row -> {
-                    int availableQuantity = row.availableAt(now);
-                    return new StoreProductResponse(
-                            row.productId(),
-                            row.name(),
-                            row.category(),
-                            row.price(),
-                            row.imageUrl(),
-                            availableQuantity,
-                            availableQuantity == 0
-                    );
-                })
-                .toList();
-    }
-
-    /**
-     * U-10 고객 상품 상세. 목록과 같은 조회 표 행을 읽는다. 먼저 받게 될 상품의 유통기한은 조회 표의 valid_until
-     * (남은 재고가 있는 미경과 lot 중 가장 빠른 기한, 예약은 FEFO)이고, 품절이면 보여 주지 않는다
-     */
-    public StoreProductDetailResponse getStoreProduct(Long storeId, Long productId) {
-        LocalDateTime now = LocalDateTime.now(clock);
-        StoreProductRow row = storeProductStockRepository.findStoreProduct(storeId, productId)
-                .orElseThrow(() -> new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND));
-        int availableQuantity = row.availableAt(now);
-
-        return new StoreProductDetailResponse(
-                row.productId(),
-                row.name(),
-                row.category(),
-                row.price(),
-                row.imageUrl(),
-                availableQuantity,
-                availableQuantity == 0,
-                availableQuantity == 0 ? null : toOffsetDateTime(row.validUntil())
         );
     }
 }

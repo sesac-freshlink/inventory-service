@@ -12,8 +12,8 @@ import java.util.Optional;
 public interface StoreProductStockRepository extends JpaRepository<StoreProductStock, Long> {
 
     /**
-     * U-10 고객 상품 목록. 상품 전체에 그 점포의 조회 표 행을 LEFT JOIN 하고, q가 있으면 상품명으로 거른다.
-     * 상품명 순. q는 LikePattern.contains로 만든 값(null이면 조건 없음)
+     * U-10 고객 상품 목록. 상품 전체에 그 점포의 조회 표 행을 LEFT JOIN 하고, q가 있으면 상품명으로,
+     * category가 있으면 그 카테고리로 거른다. 상품명 순. q는 LikePattern.contains로 만든 값(null이면 조건 없음)
      */
     @Query("""
             SELECT new com.freshlink.inventory.domain.storestock.StoreProductRow(
@@ -21,10 +21,12 @@ public interface StoreProductStockRepository extends JpaRepository<StoreProductS
             )
             FROM Product p
             LEFT JOIN StoreProductStock s ON s.productId = p.id AND s.storeId = :storeId
-            WHERE :q IS NULL OR p.name LIKE :q ESCAPE '\\'
+            WHERE (:q IS NULL OR p.name LIKE :q ESCAPE '\\')
+              AND (:category IS NULL OR p.category = :category)
             ORDER BY p.name, p.id
             """)
-    List<StoreProductRow> findStoreProducts(@Param("storeId") Long storeId, @Param("q") String q);
+    List<StoreProductRow> findStoreProducts(
+            @Param("storeId") Long storeId, @Param("q") String q, @Param("category") String category);
 
     /** U-10 고객 상품 상세. 목록과 같은 JOIN에서 상품 하나. 상품이 없으면 빈 값 */
     @Query("""
