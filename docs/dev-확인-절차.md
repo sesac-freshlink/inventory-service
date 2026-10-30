@@ -4,8 +4,8 @@ PC 자동 테스트(Testcontainers·MSW)로 끝나지 않는 확인을 AWS dev�
 
 명령은 Windows PowerShell 5.1 기준이다. 근거 문서:
 
-- [개발 환경 접속 가이드](https://github.com/sesac-freshlink/.github/blob/main/docs/개발환경-접속.md) 2~4장: 포트 포워딩, 실행 구성, 개인 큐
-- [팀원 가이드 5](https://github.com/sesac-freshlink/.github/blob/main/docs/팀원-가이드-5-주말-dev-켜기.md): dev 켜고 끄기
+- [개발 환경 접속 가이드](https://github.com/sesac-freshlink/.github/blob/main/docs/팀원-가이드/0-개발환경-접속.md) 2~4장: 포트 포워딩, 실행 구성, 개인 큐
+- [팀원 가이드 5](https://github.com/sesac-freshlink/.github/blob/main/docs/팀원-가이드/5-주말-dev-켜기.md): dev 켜고 끄기
 - [실패-시나리오-절차.md](실패-시나리오-절차.md), [동시성-테스트-절차.md](동시성-테스트-절차.md)
 
 비밀값(DB 비밀번호, 키)은 이 문서와 명령 기록에 남기지 않는다.
