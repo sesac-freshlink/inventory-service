@@ -77,7 +77,8 @@ public class StoreProductService {
                     availableQuantity,
                     availableQuantity == 0,
                     snapshot.isRecommended(row.productId()),
-                    snapshot.isNew(row.productId())
+                    snapshot.isNew(row.productId()),
+                    snapshot.isFirstCome(row.productId())
             );
         }).toList();
     }
@@ -103,7 +104,8 @@ public class StoreProductService {
                 availableQuantity == 0,
                 availableQuantity == 0 ? null : row.validUntil().atZone(SEOUL).toOffsetDateTime(),
                 snapshot.isRecommended(row.productId()),
-                snapshot.isNew(row.productId())
+                snapshot.isNew(row.productId()),
+                snapshot.isFirstCome(row.productId())
         );
     }
 

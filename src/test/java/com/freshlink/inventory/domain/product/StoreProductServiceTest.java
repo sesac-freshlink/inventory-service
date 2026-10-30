@@ -49,7 +49,7 @@ class StoreProductServiceTest {
 
     private void noBadges() {
         when(badges.load(any(), any())).thenReturn(
-                new StoreProductBadges.Snapshot(Set.of(), Map.of(), Map.of(), NOW));
+                new StoreProductBadges.Snapshot(Set.of(), Map.of(), Map.of(), Set.of(), NOW));
     }
 
     @Test
@@ -92,7 +92,7 @@ class StoreProductServiceTest {
     @Test
     void 추천순은_최근_순판매_많은_순이고_같으면_상품명_순을_유지한다() {
         when(badges.load(any(), any())).thenReturn(new StoreProductBadges.Snapshot(
-                Set.of(), Map.of(), Map.of(1L, 2, 3L, 5), NOW));
+                Set.of(), Map.of(), Map.of(1L, 2, 3L, 5), Set.of(), NOW));
         when(storeProductStockRepository.findStoreProducts(1L, null, null)).thenReturn(List.of(
                 new StoreProductRow(1L, "가", "c", 1L, null, 1, NOW.plusDays(1)),
                 new StoreProductRow(2L, "나", "c", 1L, null, 1, NOW.plusDays(1)),
@@ -112,6 +112,7 @@ class StoreProductServiceTest {
                 Set.of(1L, 2L),
                 Map.of(2L, NOW.minusDays(1), 3L, NOW.minusDays(8)),
                 Map.of(),
+                Set.of(),
                 NOW));
         List<StoreProductRow> rows = List.of(
                 new StoreProductRow(1L, "가", "c", 1L, null, 1, NOW.plusDays(1)),

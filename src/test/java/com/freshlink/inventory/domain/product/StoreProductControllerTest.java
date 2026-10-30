@@ -36,9 +36,9 @@ class StoreProductControllerTest {
         when(storeProductService.getStoreProducts(1L, StoreProductQuery.of(null)))
                 .thenReturn(List.of(
                         new StoreProductResponse(15L, "매운 컵라면 115g", "라면", 1700L,
-                                "https://img.example/P015.jpg", 5, false, true, false),
+                                "https://img.example/P015.jpg", 5, false, true, false, false),
                         new StoreProductResponse(2L, "생수 500ml", "음료", 1000L,
-                                null, 0, true, false, true)
+                                null, 0, true, false, true, true)
                 ));
 
         mockMvc.perform(get("/stores/1/products"))
@@ -55,14 +55,15 @@ class StoreProductControllerTest {
                 .andExpect(jsonPath("$[1].imageUrl").value(nullValue()))
                 .andExpect(jsonPath("$[1].availableQuantity").value(0))
                 .andExpect(jsonPath("$[1].soldOut").value(true))
-                .andExpect(jsonPath("$[1].newArrival").value(true));
+                .andExpect(jsonPath("$[1].newArrival").value(true))
+                .andExpect(jsonPath("$[1].firstCome").value(true));
     }
 
     @Test
     void 입고가_없는_점포도_상품전체를_품절로_응답한다() throws Exception {
         when(storeProductService.getStoreProducts(999L, StoreProductQuery.of(null)))
                 .thenReturn(List.of(new StoreProductResponse(2L, "생수 500ml", "음료", 1000L,
-                        null, 0, true, false, false)));
+                        null, 0, true, false, false, false)));
 
         mockMvc.perform(get("/stores/999/products"))
                 .andExpect(status().isOk())
