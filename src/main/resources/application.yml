@@ -7,6 +7,8 @@ app:
   queue:
     commands: ${QUEUE_PREFIX:dev-}inventory-commands.fifo
     results: ${QUEUE_PREFIX:dev-}inventory-results
+    # 화면 알림(유통기한 임박·경과, 재입고). 표준 큐, notification-service가 받는다 (common 0.6.0 NotificationMessage)
+    notifications: ${QUEUE_PREFIX:dev-}notification-events
     # infra modules/messaging의 maxReceiveCount와 같게 둔다. 실패 로그에 "DLQ로 간다"를 붙일 때만 쓴다
     max-receive-count: ${QUEUE_MAX_RECEIVE_COUNT:3}
   expiry:

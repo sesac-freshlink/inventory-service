@@ -22,6 +22,7 @@ import com.freshlink.common.message.command.InboundMessage;
 import com.freshlink.common.message.command.ReleaseMessage;
 import com.freshlink.common.message.command.ReserveMessage;
 import com.freshlink.common.message.command.ReturnMessage;
+import com.freshlink.common.message.notification.NotificationMessage;
 import com.freshlink.common.message.result.ReserveFailReason;
 import com.freshlink.common.message.result.ReserveFailedMessage;
 import com.freshlink.common.message.result.ReservedLot;
@@ -59,6 +60,7 @@ public class InventoryCommandService {
     private final StockChangePublisher stockChanges;
     private final FirstComeService firstComeService;
     private final String resultsQueue;
+    private final String notificationQueue;
     private final Clock clock;
 
     public InventoryCommandService(
@@ -73,6 +75,7 @@ public class InventoryCommandService {
             StockChangePublisher stockChanges,
             FirstComeService firstComeService,
             @Value("${app.queue.results}") String resultsQueue,
+            @Value("${app.queue.notifications}") String notificationQueue,
             Clock clock
     ) {
         this.processedMessages = processedMessages;
@@ -86,6 +89,7 @@ public class InventoryCommandService {
         this.stockChanges = stockChanges;
         this.firstComeService = firstComeService;
         this.resultsQueue = resultsQueue;
+        this.notificationQueue = notificationQueue;
         this.clock = clock;
     }
 
@@ -122,6 +126,14 @@ public class InventoryCommandService {
             return;
         }
 
+        // 재입고 알림: 입고 전에 팔 수 있는 수량이 0이던 상품만. 같은 쪽지에 같은 상품이 여러 줄이어도 처음 값으로 본다
+        Map<Long, Integer> sellableBefore = new HashMap<>();
+        for (InboundItem item : message.items()) {
+            productRepository.findByProductCode(item.productCode())
+                    .ifPresent(product -> sellableBefore.computeIfAbsent(
+                            product.getId(), id -> sellable(message.storeId(), id)));
+        }
+
         Set<Long> productIds = new TreeSet<>();
         for (InboundItem item : message.items()) {
             productIds.add(processInboundItem(message, item));
@@ -133,6 +145,7 @@ public class InventoryCommandService {
                 LocalDateTime.now(clock)
         ));
         stockChanges.publish(message.storeId(), productIds);
+        saveRestocked(message.storeId(), productIds, sellableBefore);
     }
 
     /** lot에 더하고 원장을 남긴다. 고객용 조회 표를 다시 계산하도록 상품 ID를 돌려준다 */
@@ -539,6 +552,38 @@ public class InventoryCommandService {
                 lot.getId(),
                 quantity
         );
+    }
+
+    /**
+     * 입고로 팔 수 있는 수량이 0 → 1 이상이 된 상품마다 재입고 알림 쪽지(RESTOCKED)를 같은 트랜잭션의 Outbox로 남긴다.
+     * 이미 남아 있던 상품에 더해진 입고는 보내지 않는다. 신청한 고객이 있는지는 notification-service가 본다.
+     * RETURN·RELEASE로 다시 생긴 수량은 재입고가 아니라서 여기(INBOUND)에서만 보낸다
+     */
+    private void saveRestocked(Long storeId, Set<Long> productIds, Map<Long, Integer> sellableBefore) {
+        for (Long productId : productIds) {
+            if (sellableBefore.getOrDefault(productId, 0) > 0) {
+                continue;
+            }
+            int after = sellable(storeId, productId);
+            if (after < 1) {
+                continue;
+            }
+            Product product = productRepository.findById(productId)
+                    .orElseThrow(() -> new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND));
+            outboxWriter.save(notificationQueue,
+                    NotificationMessage.restocked(storeId, productId, product.getName(), after));
+            log.info("재입고 알림 쪽지: storeId={}, productId={}, sellable={}", storeId, productId, after);
+        }
+    }
+
+    /** 지금 팔 수 있는 수량 = 기한이 안 지난 lot의 (실물 − 예약) 합. 고객 구매 가능 수량과 같은 규칙(S-31) */
+    private int sellable(Long storeId, Long productId) {
+        return inventoryLotRepository
+                .findByStoreIdAndProductIdAndExpiryDateAfterOrderByExpiryDateAscIdAsc(
+                        storeId, productId, LocalDateTime.now(clock))
+                .stream()
+                .mapToInt(InventoryLot::availableQuantity)
+                .sum();
     }
 
     /** 확정·해제가 건드린 lot들의 상품. 고객용 조회 표를 다시 계산할 대상 */

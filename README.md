@@ -75,7 +75,8 @@ flowchart LR
 | U-10 | 점포 상품 목록 | `GET /stores/{storeId}/products` 선택 쿼리: `q` 상품명 검색(50자까지), `category` 카테고리, `sort` `NAME`(기본, 상품명 순)·`POPULAR`(추천순: 최근 7일 순판매 = 판매 − 환불 복원, 많은 순), `recommended=true` 점주 추천상품만, `newOnly=true` 신상품(그 점포에 처음 입고된 지 7일 안)만. 응답 한 줄에 `recommended`·`newArrival`. 모르는 `sort`는 400. 카테고리 칩은 `GET /stores/{storeId}/products/categories`(상품 전체 카테고리, 가나다순) | 상품 30개 전부. 입고가 없는 상품·점포도 `availableQuantity 0`, `soldOut true`로 나온다 |
 | U-10 | 고객 상품 상세 | `GET /stores/{storeId}/products/{productId}` → `{productId, name, category, price, imageUrl, availableQuantity, soldOut, nearestExpiry, recommended, newArrival}` | 공개. 고객용 조회 표에서 읽는다. `nearestExpiry`는 먼저 받게 될 상품의 유통기한(남은 재고가 있는 미경과 lot 중 가장 빠른 기한 = 조회 표 `valid_until`, 예약은 FEFO). 품절이면 null. 없는 상품 404 `PRODUCT_NOT_FOUND`. **gateway에 이 경로(라우트·공개 허용)가 아직 없다**(요청 중) |
 | E-01 | 점포별 순서 처리 (구현됨) | FIFO 큐 소비. RESERVE(FEFO 예약 → RESERVED/RESERVE_FAILED), CONFIRM, RELEASE(사유 PAYMENT_FAILED·EXPIRED·CANCELED), RETURN(환불 뒤 판매 복원, A10), DISPOSE, INBOUND | 동시 예약 100건에도 재고가 음수가 되지 않는다 |
-| E-09 | 유통기한 스케줄러 (구현됨) | `app.expiry.cron`(기본 자정) + ShedLock `lotStatusJob` | 주기마다 임박·경과 상태 갱신 |
+| E-09 | 유통기한 스케줄러 (구현됨) | `app.expiry.cron`(기본 자정) + ShedLock `lotStatusJob` | 주기마다 임박·경과 상태 갱신. 바뀌는 lot마다 점주 화면 알림 쪽지(`EXPIRY_IMMINENT`·`EXPIRED`)를 같은 트랜잭션 Outbox로 남긴다(수량 0인 lot 제외, 같은 lot은 상태마다 한 번) |
+| N-01 | 화면 알림 쪽지 | common 0.6.0 `NotificationMessage` → `app.queue.notifications`(`${QUEUE_PREFIX}notification-events`, 표준 큐) | 유통기한 임박·경과(스케줄러), 재입고 `RESTOCKED`(INBOUND로 팔 수 있는 수량이 0 → 1 이상이 될 때만, 환불·해제로 돌아온 수량은 아님). 받는 사람과 문구는 notification-service가 정한다 |
 
 점주 API는 점포 ID를 주소로 받지 않고 항상 gateway가 붙여 준 `X-Store-Id` 헤더를 쓴다. `/owner/**`에 이 헤더가 없으면 403 `STORE_NOT_LINKED`다.
 
@@ -203,7 +204,7 @@ logistics-simulator로 입고 쪽지를 보내고 `GET /owner/inventory/ledger`�
 | `DB_URL` | MySQL 주소(`jdbc:mysql://…/inventory`) | 비어 있음. PC에서는 `TestInventoryServiceApplication`이 Testcontainers로 대신 붙는다 |
 | `DB_USERNAME` | DB 사용자 | `inventory_app` |
 | `DB_PASSWORD` | DB 비밀번호(비밀값) | 비어 있음 |
-| `QUEUE_PREFIX` | 큐 이름 앞부분. `app.queue.commands` = `<접두사>inventory-commands.fifo`, `app.queue.results` = `<접두사>inventory-results`. PC는 개인 큐(`dev-<이름>-`) | `dev-` |
+| `QUEUE_PREFIX` | 큐 이름 앞부분. `app.queue.commands` = `<접두사>inventory-commands.fifo`, `app.queue.results` = `<접두사>inventory-results`, `app.queue.notifications` = `<접두사>notification-events`(화면 알림). PC는 개인 큐(`dev-<이름>-`) | `dev-` |
 | `EXPIRY_CRON` | 유통기한 스케줄러 주기(`app.expiry.cron`, Spring cron 6자리, Asia/Seoul) | `0 0 0 * * *`(자정) |
 | `STORE_STOCK_REFRESH_MS` | 고객용 조회 표 정리 간격(`app.store-stock.refresh-delay-ms`, 밀리초) | `60000`(1분) |
 | `QUEUE_MAX_RECEIVE_COUNT` | 실패 로그에 "DLQ로 간다"를 붙이는 기준(`app.queue.max-receive-count`). infra `maxReceiveCount`와 같게 둔다 | `3` |
