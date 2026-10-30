@@ -7,6 +7,7 @@ import com.freshlink.common.message.command.DisposeMessage;
 import com.freshlink.common.message.command.InboundItem;
 import com.freshlink.common.message.command.InboundMessage;
 import com.freshlink.common.message.command.ReleaseMessage;
+import com.freshlink.common.message.command.ReturnMessage;
 import com.freshlink.common.message.command.ReserveMessage;
 
 import com.freshlink.inventory.common.metrics.CommandMetrics;
@@ -85,6 +86,7 @@ public class InventoryCommandListener {
                     .formatted(m.orderId(), m.productId(), m.quantity());
             case ConfirmMessage m -> "orderId=%d".formatted(m.orderId());
             case ReleaseMessage m -> "orderId=%d reason=%s".formatted(m.orderId(), m.reason());
+            case ReturnMessage m -> "orderId=%d".formatted(m.orderId());
             case InboundMessage m -> "shipmentId=%s productCodes=%s"
                     .formatted(m.shipmentId(), m.items().stream().map(InboundItem::productCode).toList());
             case DisposeMessage m -> "disposalId=%d lotId=%d quantity=%d"

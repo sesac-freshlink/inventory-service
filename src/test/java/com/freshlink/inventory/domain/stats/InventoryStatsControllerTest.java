@@ -35,7 +35,8 @@ class InventoryStatsControllerTest {
         LocalDate to = LocalDate.of(2026, 10, 25);
         when(inventoryStatsService.getStats(1L, from, to)).thenReturn(new InventoryStatsResponse(
                 from, to, 16, 3, 2, -1, 0.4,
-                List.of(new ProductStatsResponse(12L, "P012", "흰 우유 500ml", "유제품", 6, 0, 2, -1, 1.0))
+                List.of(new ProductStatsResponse(12L, "P012", "흰 우유 500ml", "유제품", 6, 0, 2, -1, 1.0, 0)),
+                0
         ));
 
         mockMvc.perform(get("/owner/inventory/stats")

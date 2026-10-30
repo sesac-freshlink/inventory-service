@@ -31,7 +31,7 @@
 ```mermaid
 flowchart LR
     SIM["logistics-simulator"] -- "INBOUND" --> Q1[["inventory-commands.fifo<br/>그룹 = 점포"]]
-    ORD["order-service"] -- "RESERVE · CONFIRM · RELEASE" --> Q1
+    ORD["order-service"] -- "RESERVE · CONFIRM · RELEASE · RETURN" --> Q1
     INV -- "DISPOSE" --> Q1
     Q1 --> INV["inventory-service"]
     INV -- "RESERVED · RESERVE_FAILED" --> Q2[["inventory-results"]]
@@ -72,7 +72,7 @@ flowchart LR
 | 메모 | 점주 상품 메모 | `GET /owner/inventory/memos`(메모 있는 상품만, 최근 수정 순), `PUT /owner/inventory/memos/{productId}` 본문 `{content, version?}` → 200 `{productId, productCode, name, category, content, version, updatedAt}`, `DELETE /owner/inventory/memos/{productId}?version=` → 204 | 상품 하나에 메모 하나(200자), 처음 저장할 때 생긴다. 처음 만들 때는 `version` 없이, 고칠·지울 때는 읽은 `version`을 보낸다. 그 사이 다른 화면이 바꿨으면 409 `MEMO_CHANGED`(낙관적 락 `@Version`). 빈 내용 400, 없는 상품 404, 없는 메모 삭제는 204 |
 | U-10 | 점포 상품 목록 | `GET /stores/{storeId}/products` (선택 쿼리 `q` 상품명 검색, 50자까지) | 상품 30개 전부. 입고가 없는 상품·점포도 `availableQuantity 0`, `soldOut true`로 나온다. `imageUrl`은 없으면 null. 수량은 lot을 합산하지 않고 고객용 재고 조회 표(`store_product_stock`)에서 읽는다(5장, CQRS). 상품과 조회 표를 LEFT JOIN 한 쿼리 한 번이고 `q`는 DB가 `LIKE`로 거른다(`%`·`_`는 글자 그대로). 50자 초과는 400 `VALIDATION_ERROR` |
 | U-10 | 고객 상품 상세 | `GET /stores/{storeId}/products/{productId}` → `{productId, name, category, price, imageUrl, availableQuantity, soldOut, nearestExpiry}` | 공개. 고객용 조회 표에서 읽는다. `nearestExpiry`는 먼저 받게 될 상품의 유통기한(남은 재고가 있는 미경과 lot 중 가장 빠른 기한 = 조회 표 `valid_until`, 예약은 FEFO). 품절이면 null. 없는 상품 404 `PRODUCT_NOT_FOUND`. **gateway에 이 경로(라우트·공개 허용)가 아직 없다**(요청 중) |
-| E-01 | 점포별 순서 처리 (구현됨) | FIFO 큐 소비. RESERVE(FEFO 예약 → RESERVED/RESERVE_FAILED), CONFIRM, RELEASE, DISPOSE, INBOUND | 동시 예약 100건에도 재고가 음수가 되지 않는다 |
+| E-01 | 점포별 순서 처리 (구현됨) | FIFO 큐 소비. RESERVE(FEFO 예약 → RESERVED/RESERVE_FAILED), CONFIRM, RELEASE(사유 PAYMENT_FAILED·EXPIRED·CANCELED), RETURN(환불 뒤 판매 복원, A10), DISPOSE, INBOUND | 동시 예약 100건에도 재고가 음수가 되지 않는다 |
 | E-09 | 유통기한 스케줄러 (구현됨) | `app.expiry.cron`(기본 자정) + ShedLock `lotStatusJob` | 주기마다 임박·경과 상태 갱신 |
 
 점주 API는 점포 ID를 주소로 받지 않고 항상 gateway가 붙여 준 `X-Store-Id` 헤더를 쓴다. `/owner/**`에 이 헤더가 없으면 403 `STORE_NOT_LINKED`다.
@@ -87,20 +87,21 @@ API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gatew
 | `inventory_lot` | id, store_id, product_id, expiry_date, quantity, reserved_quantity, version(낙관적 락) |
 | `reservation` | id, order_id, lot_id, quantity, status(RESERVED/CONFIRMED/RELEASED) |
 | `disposal` | id, store_id, lot_id, quantity, requested_by, status(REQUESTED/DONE/SKIPPED), created_at, processed_at |
-| `ledger` | id, store_id, lot_id, type(INBOUND/SALE/DISPOSE/ADJUST), quantity, ref_id, created_at |
+| `ledger` | id, store_id, lot_id, type(INBOUND/SALE/DISPOSE/ADJUST/RETURN), quantity, ref_id, created_at |
 | `adjustment` | id, store_id, lot_id, delta, quantity_before, quantity_after, reason, memo, adjusted_by, created_at |
 | `inbound` | id, shipment_id(유니크), store_id, received_at |
 | `safety_stock` | id, store_id, product_id, quantity(0~999), created_at, updated_at. (store_id, product_id) 유니크 |
 | `product_memo` | id, store_id, product_id, content(200자), version(낙관적 락), created_at, updated_at. (store_id, product_id) 유니크 |
 | `store_product_stock` | id, store_id, product_id, available_quantity, valid_until, updated_at. (store_id, product_id) 유니크. 고객용 재고 조회 표(CQRS) |
-| `outbox`, `processed_message` | common 모듈이 쓰는 표. common 0.4.0이 1시간마다 보낸 지 7일 지난 outbox 줄과 30일 지난 processed_message 줄을 지운다(안 보낸 줄은 남긴다) |
+| `outbox`, `processed_message` | common 모듈이 쓰는 표. common 0.4.0부터 1시간마다 보낸 지 7일 지난 outbox 줄과 30일 지난 processed_message 줄을 지운다(안 보낸 줄은 남긴다) |
 | `shedlock` | 스케줄러·Outbox 발행기·common 정리 작업(`freshlink-message-cleanup`) 잠금 |
 
 상태가 바뀌는 길:
 
-- **reservation:** RESERVE로 `RESERVED` → CONFIRM이면 `CONFIRMED`(lot 실물·예약 감소, 원장 SALE) / RELEASE면 `RELEASED`(예약만 복원, 원장 없음). 확정·해제된 예약은 다시 바뀌지 않는다.
+- **reservation:** RESERVE로 `RESERVED` → CONFIRM이면 `CONFIRMED`(lot 실물·예약 감소, 원장 SALE) / RELEASE면 `RELEASED`(예약만 복원, 원장 없음). 결제 전 고객 취소(CANCELED)도 같은 RELEASE다. 확정·해제된 예약은 다시 바뀌지 않는다(환불 RETURN도 예약 상태는 그대로 두고 원장으로만 남긴다).
 - **disposal:** `POST /owner/disposals`로 `REQUESTED` → DISPOSE 쪽지 처리 때 `DONE`(lot 수량 감소, 원장 DISPOSE) / 폐기 가능 수량이 모자라면 `SKIPPED`(재고 그대로). 결과는 `GET /owner/disposals`(S-33)로 본다.
-- **ledger:** 실물이 바뀔 때만 한 줄 추가한다. 입고 `+n`(ref_id = shipmentId), 판매 `−n`(orderId), 폐기 `−n`(disposalId), 조정 `±n`(adjustmentId). lot별 합계 = `inventory_lot.quantity`.
+- **ledger:** 실물이 바뀔 때만 한 줄 추가한다. 입고 `+n`(ref_id = shipmentId), 판매 `−n`(orderId), 폐기 `−n`(disposalId), 조정 `±n`(adjustmentId), 환불 복원 `+n`(orderId, 판매한 lot에 그대로). lot별 합계 = `inventory_lot.quantity`.
+- **RETURN(common 0.5.0):** 쪽지에는 orderId·storeId만 온다. 그 주문의 판매 원장(SALE, ref_id = orderId)으로 lot과 수량을 찾아 실물을 되돌리고 RETURN을 남긴다. 주문당 한 번만(같은 주문의 RETURN 원장이 있으면 건너뜀), 판매 기록이 없으면 예외로 재시도·DLQ, 기한이 지난 lot도 원래 lot에 되돌린다(구매 가능 수량에는 안 들어가고 점주가 폐기로 정리). 판매 순위와 통계의 판매는 SALE − RETURN(순판매)이고, 통계에 `returnedQuantity`가 따로 있다.
 - **store_product_stock:** 재고를 바꾸는 처리(입고·예약·확정·해제·폐기·수동 조정)가 같은 트랜잭션 끝에서 그 상품의 구매 가능 수량을 lot에서 다시 계산해 넣는다(`StockChangePublisher` → `StockChanged` → `StoreStockProjector`). `valid_until`은 이 값이 맞는 마지막 시각(남은 재고가 있는 미경과 lot 중 가장 빠른 기한)이고, 지나면 고객 목록은 품절로 본다. 1분 정리 작업(`StoreStockRefreshScheduler`)이 그런 행을 다시 계산한다. 설계와 이유는 [docs/고객용-재고-조회-표-CQRS.md](docs/고객용-재고-조회-표-CQRS.md).
 - **inventory_lot.status:** 스케줄러가 갱신하는 표시용(NORMAL → IMMINENT → EXPIRED). 판단에는 이 값을 쓰지 않고 그때마다 `expiry_date`와 지금 시각으로 계산한다. 판매(구매 가능 수량·예약)는 `expiry_date > 지금`인 lot만, 폐기 요청은 계산한 상태가 임박(24시간 이내)·경과인 lot만 받는다(정상 lot은 409 `NOT_DISPOSABLE`).
 
@@ -120,7 +121,7 @@ API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gatew
 
 | 지표 | 태그 | 뜻 |
 | --- | --- | --- |
-| `inventory_command_seconds_count`·`_sum`·`_max`·`_bucket` | `type`(INBOUND·RESERVE·CONFIRM·RELEASE·DISPOSE·UNKNOWN), `result`(processed·duplicate·failed) | 쪽지 한 번 처리에 걸린 시간. `_count`가 건수다. duplicate는 같은 messageId를 다시 받아 건너뛴 것, failed는 예외로 되돌린 것(SQS가 다시 보내므로 시도마다 센다) |
+| `inventory_command_seconds_count`·`_sum`·`_max`·`_bucket` | `type`(INBOUND·RESERVE·CONFIRM·RELEASE·RETURN·DISPOSE·UNKNOWN), `result`(processed·duplicate·failed) | 쪽지 한 번 처리에 걸린 시간. `_count`가 건수다. duplicate는 같은 messageId를 다시 받아 건너뛴 것, failed는 예외로 되돌린 것(SQS가 다시 보내므로 시도마다 센다) |
 | `inventory_outbox_unpublished` | 없음 | 아직 보내지 않은 결과 쪽지 수. 0 근처가 정상이고 계속 늘면 outbox 발행이 막힌 것 |
 
 ## 7. 폴더 구조

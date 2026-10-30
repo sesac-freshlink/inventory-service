@@ -21,6 +21,7 @@ import com.freshlink.common.message.command.DisposeMessage;
 import com.freshlink.common.message.command.InboundMessage;
 import com.freshlink.common.message.command.ReleaseMessage;
 import com.freshlink.common.message.command.ReserveMessage;
+import com.freshlink.common.message.command.ReturnMessage;
 import com.freshlink.common.message.result.ReserveFailReason;
 import com.freshlink.common.message.result.ReserveFailedMessage;
 import com.freshlink.common.message.result.ReservedLot;
@@ -101,6 +102,8 @@ public class InventoryCommandService {
             handleRelease(releaseMessage);
         } else if (message instanceof DisposeMessage disposeMessage) {
             handleDispose(disposeMessage);
+        } else if (message instanceof ReturnMessage returnMessage) {
+            handleReturn(returnMessage);
         } else {
             throw new IllegalArgumentException(
                     "지원하지 않는 inventory command type: " + message.type()
@@ -387,7 +390,7 @@ public class InventoryCommandService {
         );
     }
 
-    /** 결제 실패·미결제 만료. RESERVED 예약을 되돌린다. 원장은 남기지 않는다 (명세 5-5) */
+    /** 결제 실패·미결제 만료·결제 전 고객 취소(CANCELED, v0.5.0). RESERVED 예약을 되돌린다. 원장은 남기지 않는다 (명세 5-5) */
     private void handleRelease(ReleaseMessage message) {
         List<Reservation> reserved = reservationRepository
                 .findByOrderIdOrderByIdAsc(message.orderId())
@@ -416,6 +419,57 @@ public class InventoryCommandService {
                 message.orderId(),
                 message.reason(),
                 reserved.size()
+        );
+    }
+
+    /**
+     * 환불 뒤 판매 재고 복원 (A10, v0.5.0). 쪽지에는 주문 ID·점포만 있어서, 그 주문의 판매 기록(SALE, ref_id = 주문 ID)으로
+     * 원래 lot과 수량을 찾아 실물을 되돌리고 원장에 RETURN(+n)을 남긴다.
+     * <ul>
+     *   <li>주문당 한 번만 복원한다. messageId가 달라도 같은 주문의 RETURN 원장이 이미 있으면 아무것도 안 한다.</li>
+     *   <li>판매 기록이 없으면(CONFIRM 전에 왔거나 잘못된 주문) 예외로 끝내 재시도·DLQ로 보낸다. 같은 점포 쪽지는 한 줄이라
+     *       order가 CONFIRM 뒤에 보내면 이 경우는 생기지 않는다.</li>
+     *   <li>유통기한이 지난 lot도 원래 lot에 그대로 되돌린다. 경과 lot은 이미 판매·예약에서 빠지므로 점주가 폐기로 정리한다.</li>
+     * </ul>
+     */
+    private void handleReturn(ReturnMessage message) {
+        String orderId = String.valueOf(message.orderId());
+        if (ledgerRepository.existsByStoreIdAndTypeAndRefId(message.storeId(), LedgerType.RETURN, orderId)) {
+            log.info(
+                    "RETURN 이미 복원한 주문: orderId={}, storeId={}, messageId={}",
+                    message.orderId(),
+                    message.storeId(),
+                    message.messageId()
+            );
+            return;
+        }
+
+        List<Ledger> sales = ledgerRepository.findByStoreIdAndTypeAndRefIdOrderByIdAsc(
+                message.storeId(), LedgerType.SALE, orderId);
+        if (sales.isEmpty()) {
+            throw new IllegalStateException(
+                    "RETURN 되돌릴 판매 기록이 없다: orderId=" + message.orderId()
+                            + ", storeId=" + message.storeId()
+            );
+        }
+
+        Map<Long, InventoryLot> lots = new HashMap<>();
+        for (Ledger sale : sales) {
+            InventoryLot lot = inventoryLotRepository.findById(sale.getLotId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "판매 기록의 lot이 없다: ledgerId=" + sale.getId() + ", lotId=" + sale.getLotId()));
+            int quantity = -sale.getQuantity();
+            lot.addQuantity(quantity);
+            ledgerRepository.save(Ledger.returned(lot.getStoreId(), lot.getId(), quantity, orderId));
+            lots.put(lot.getId(), lot);
+        }
+        stockChanges.publish(message.storeId(), productIdsOf(lots));
+
+        log.info(
+                "RETURN 처리: orderId={}, lots={}, quantity={}",
+                message.orderId(),
+                lots.size(),
+                sales.stream().mapToInt(sale -> -sale.getQuantity()).sum()
         );
     }
 

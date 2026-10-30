@@ -19,7 +19,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 상품별 판매 순위. 판매는 결제가 확정되어 실물이 줄어든 수량, 곧 원장 SALE이다(예약만 된 수량은 세지 않는다).
+ * 상품별 판매 순위. 판매는 결제가 확정되어 실물이 줄어든 수량, 곧 원장 SALE에서 환불로 되돌린 RETURN을 뺀 순판매다
+ * (예약만 된 수량은 세지 않는다).
  * 원장 집계 쿼리는 S-42 통계와 같은 것(상품·종류별 합)을 쓰고 SALE만 고른다.
  * 환불로 재고를 되돌리는 기능이 생기면 그 원장 종류를 여기서 빼면 된다(지금은 없음)
  */
@@ -51,14 +52,15 @@ public class SalesRankingService {
         }
         DateRange range = DateRange.of(from, to, clock);
 
-        // 판매는 음수로 저장돼 있어 양수로 바꾼다
+        // 판매는 음수, 환불 복원은 양수로 저장돼 있어 둘을 더하면 −(순판매)다. 0 이하인 상품은 순위에 넣지 않는다
         Map<Long, Integer> soldByProduct = new HashMap<>();
         for (ProductLedgerSum sum : ledgerRepository.sumByProductAndType(
                 storeId, range.fromInclusive(), range.toExclusive())) {
-            if (sum.type() == LedgerType.SALE && sum.quantity() != 0) {
-                soldByProduct.put(sum.productId(), Math.toIntExact(Math.abs(sum.quantity())));
+            if (sum.type() == LedgerType.SALE || sum.type() == LedgerType.RETURN) {
+                soldByProduct.merge(sum.productId(), Math.toIntExact(-sum.quantity()), Integer::sum);
             }
         }
+        soldByProduct.values().removeIf(sold -> sold <= 0);
         int total = soldByProduct.values().stream().mapToInt(Integer::intValue).sum();
 
         Map<Long, Product> products = new HashMap<>();
