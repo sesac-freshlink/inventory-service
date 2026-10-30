@@ -18,9 +18,6 @@ import java.util.stream.Collectors;
 
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
-import com.freshlink.inventory.domain.product.StoreProductResponse;
-import com.freshlink.inventory.domain.storestock.StoreProductRow;
-import com.freshlink.inventory.domain.storestock.StoreProductStockRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -41,9 +38,6 @@ class InventoryQueryServiceTest {
     ProductRepository productRepository;
 
     @Mock
-    StoreProductStockRepository storeProductStockRepository;
-
-    @Mock
     InventorySearchRepository inventorySearchRepository;
 
     private InventoryQueryService service;
@@ -58,7 +52,6 @@ class InventoryQueryServiceTest {
                 inventoryLotRepository,
                 productRepository,
                 calculationService,
-                storeProductStockRepository,
                 inventorySearchRepository,
                 clock
         );
@@ -159,42 +152,5 @@ class InventoryQueryServiceTest {
         when(lot.getReservedQuantity()).thenReturn(reservedQuantity);
 
         return lot;
-    }
-
-    @Test
-    void 고객_상품목록은_조회표_JOIN_결과를_그대로_쓰고_값이_맞는_시각이_지났거나_행이_없으면_품절이다() {
-        // now = 2026-10-20 15:00 KST
-        LocalDateTime now = LocalDateTime.of(2026, 10, 20, 15, 0);
-        when(storeProductStockRepository.findStoreProducts(1L, null)).thenReturn(List.of(
-                new StoreProductRow(8L, "감자칩", "과자", 1500L, null, null, null),
-                new StoreProductRow(15L, "매운 컵라면 115g", "라면", 1700L, "https://img.example/P015.jpg",
-                        5, now.plusHours(1)),
-                new StoreProductRow(2L, "생수 500ml", "음료", 1000L, null, 3, now)
-        ));
-
-        List<StoreProductResponse> result = service.getStoreProducts(1L, null);
-
-        // 순서는 쿼리(상품명 순) 그대로
-        assertThat(result)
-                .extracting(StoreProductResponse::name, StoreProductResponse::availableQuantity,
-                        StoreProductResponse::soldOut, StoreProductResponse::imageUrl)
-                .containsExactly(
-                        tuple("감자칩", 0, true, null),
-                        tuple("매운 컵라면 115g", 5, false, "https://img.example/P015.jpg"),
-                        // 값이 맞는 시각(15:00)이 지금과 같으면 이미 지난 것으로 본다
-                        tuple("생수 500ml", 0, true, null)
-                );
-    }
-
-    @Test
-    void 검색어는_앞뒤_공백을_빼고_LIKE_조건으로_넘기며_빈_검색어는_조건이_없다() {
-        when(storeProductStockRepository.findStoreProducts(1L, "%우유%")).thenReturn(List.of());
-        when(storeProductStockRepository.findStoreProducts(1L, null)).thenReturn(List.of());
-
-        service.getStoreProducts(1L, "  우유 ");
-        service.getStoreProducts(1L, "   ");
-
-        verify(storeProductStockRepository).findStoreProducts(1L, "%우유%");
-        verify(storeProductStockRepository).findStoreProducts(1L, null);
     }
 }

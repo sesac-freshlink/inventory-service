@@ -18,7 +18,9 @@ import com.freshlink.inventory.domain.inventory.InventoryCommandService;
 import com.freshlink.inventory.domain.inventory.InventoryQueryService;
 import com.freshlink.inventory.domain.inventory.InventorySearchCondition;
 import com.freshlink.inventory.domain.inventory.InventorySummaryResponse;
+import com.freshlink.inventory.domain.product.StoreProductQuery;
 import com.freshlink.inventory.domain.product.StoreProductResponse;
+import com.freshlink.inventory.domain.product.StoreProductService;
 import com.freshlink.inventory.domain.storestock.StoreStockRefresher;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -56,6 +58,9 @@ class StoreStockTest {
 
     @Autowired
     InventoryQueryService inventoryQueryService;
+
+    @Autowired
+    StoreProductService storeProductService;
 
     @Autowired
     AdjustmentService adjustmentService;
@@ -305,7 +310,7 @@ class StoreStockTest {
     }
 
     private StoreProductResponse customerView(long storeId, long productId) {
-        return inventoryQueryService.getStoreProducts(storeId, null).stream()
+        return storeProductService.getStoreProducts(storeId, StoreProductQuery.of(null)).stream()
                 .filter(p -> p.productId().equals(productId))
                 .findFirst()
                 .orElseThrow();
