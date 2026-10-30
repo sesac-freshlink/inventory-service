@@ -74,9 +74,11 @@ public class InventoryStatsService {
         int sold = rows.stream().mapToInt(ProductStatsResponse::soldQuantity).sum();
         int disposed = rows.stream().mapToInt(ProductStatsResponse::disposedQuantity).sum();
         int adjusted = rows.stream().mapToInt(ProductStatsResponse::adjustedQuantity).sum();
+        int returned = rows.stream().mapToInt(ProductStatsResponse::returnedQuantity).sum();
 
         return new InventoryStatsResponse(
-                range.start(), range.end(), inbound, sold, disposed, adjusted, disposalRate(sold, disposed), rows);
+                range.start(), range.end(), inbound, sold, disposed, adjusted, disposalRate(sold, disposed), rows,
+                returned);
     }
 
     private ProductStatsResponse toRow(Product product, Map<LedgerType, Integer> quantities) {
@@ -84,7 +86,9 @@ public class InventoryStatsService {
             throw new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND);
         }
 
-        int sold = quantities.getOrDefault(LedgerType.SALE, 0);
+        // 환불로 되돌린 수량은 판매에서 뺀다(순판매). 기간 밖에서 판매한 것을 기간 안에 환불하면 0 아래로 갈 수 있어 0에서 멈춘다
+        int returned = quantities.getOrDefault(LedgerType.RETURN, 0);
+        int sold = Math.max(0, quantities.getOrDefault(LedgerType.SALE, 0) - returned);
         int disposed = quantities.getOrDefault(LedgerType.DISPOSE, 0);
 
         return new ProductStatsResponse(
@@ -96,7 +100,8 @@ public class InventoryStatsService {
                 sold,
                 disposed,
                 quantities.getOrDefault(LedgerType.ADJUST, 0),
-                disposalRate(sold, disposed)
+                disposalRate(sold, disposed),
+                returned
         );
     }
 
