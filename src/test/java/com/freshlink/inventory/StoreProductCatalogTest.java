@@ -132,6 +132,9 @@ class StoreProductCatalogTest {
     void 점주가_추천으로_정한_상품만_추천상품으로_나오고_다른_점포에는_영향이_없다() throws Exception {
         long p1 = product("P5409", "추천 가 커피", "카탈추천");
         long p2 = product("P5410", "추천 나 커피", "카탈추천");
+        // 추천 설정 목록은 그 점포 재고 목록에 있는(입고된 적 있는) 상품만 보여 준다
+        inbound(5404L, "P5409", 3);
+        inbound(5404L, "P5410", 3);
 
         owner(put("/owner/inventory/recommendations/" + p1), "5404")
                 .andExpect(status().isOk())
@@ -154,6 +157,28 @@ class StoreProductCatalogTest {
                 .andExpect(jsonPath("$.recommended").value(false));
         list("5404", "?category=카탈추천&recommended=true")
                 .andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void 추천_설정_목록에는_그_점포_재고_목록에_있는_상품만_나온다() throws Exception {
+        long stocked = product("P5411", "추천목록 입고됨", "카탈추천목록");
+        long soldOut = product("P5412", "추천목록 다 팔림", "카탈추천목록");
+        long never = product("P5413", "추천목록 입고 전", "카탈추천목록");
+        inbound(5407L, "P5411", 2);
+        inbound(5407L, "P5412", 1);
+        sell(5407L, 5407L, soldOut, 1);
+        // 다른 점포에만 입고된 상품도 이 점포 목록에는 없다
+        inbound(5408L, "P5413", 4);
+
+        owner(get("/owner/inventory/recommendations"), "5407")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.productId == " + stocked + ")]").isNotEmpty())
+                // 수량이 0이 돼도 재고 목록에 남으므로 추천 목록에도 남는다
+                .andExpect(jsonPath("$[?(@.productId == " + soldOut + ")]").isNotEmpty())
+                .andExpect(jsonPath("$[?(@.productId == " + never + ")]").isEmpty());
+        owner(get("/owner/inventory").param("size", "100"), "5407")
+                .andExpect(jsonPath("$.items[?(@.productId == " + never + ")]").isEmpty())
+                .andExpect(jsonPath("$.totalElements").value(2));
     }
 
     @Test
