@@ -9,6 +9,7 @@ import java.util.Set;
 
 import com.freshlink.common.error.BusinessException;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
+import com.freshlink.inventory.domain.inventory.InventoryLotRepository;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
 
@@ -28,22 +29,28 @@ public class ProductRecommendationService {
 
     private final ProductRecommendationRepository recommendationRepository;
     private final ProductRepository productRepository;
+    private final InventoryLotRepository inventoryLotRepository;
     private final Clock clock;
 
     public ProductRecommendationService(
             ProductRecommendationRepository recommendationRepository,
             ProductRepository productRepository,
+            InventoryLotRepository inventoryLotRepository,
             Clock clock
     ) {
         this.recommendationRepository = recommendationRepository;
         this.productRepository = productRepository;
+        this.inventoryLotRepository = inventoryLotRepository;
         this.clock = clock;
     }
 
-    /** 상품 전체를 이름순으로. 입고 전인 상품도 미리 정할 수 있다 */
+    /**
+     * 그 점포 재고 목록(S-10)에 있는 상품만 이름순으로. 한 번이라도 입고된 상품이고, 지금 수량이 0이어도 나온다.
+     * 한 번도 입고되지 않은 상품은 점주가 고를 수 없게 보여 주지 않는다
+     */
     public List<ProductRecommendationResponse> getRecommendations(Long storeId) {
         Set<Long> recommended = recommendationRepository.findProductIds(storeId);
-        return productRepository.findAll().stream()
+        return productRepository.findAllById(inventoryLotRepository.findProductIdsByStoreId(storeId)).stream()
                 .sorted(Comparator.comparing(Product::getName).thenComparing(Product::getId))
                 .map(product -> toResponse(product, recommended.contains(product.getId())))
                 .toList();

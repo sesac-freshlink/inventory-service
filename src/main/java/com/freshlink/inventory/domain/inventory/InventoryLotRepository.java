@@ -13,6 +13,10 @@ public interface InventoryLotRepository extends JpaRepository<InventoryLot, Long
 
     List<InventoryLot> findByStoreId(Long storeId);
 
+    /** 그 점포에 lot이 하나라도 있는 상품 ID. 점주 재고 목록(S-10)에 나오는 상품과 같다(수량이 0이 된 lot도 센다) */
+    @Query("SELECT DISTINCT l.productId FROM InventoryLot l WHERE l.storeId = :storeId")
+    List<Long> findProductIdsByStoreId(@Param("storeId") Long storeId);
+
     List<InventoryLot> findByStoreIdAndProductIdOrderByExpiryDateAscIdAsc(
             Long storeId,
             Long productId
