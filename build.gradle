@@ -27,7 +27,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.freshlink:common:0.6.0'                               // 쪽지 DTO 9종, ErrorCode·BusinessException·ErrorResponse, Outbox traceparent 잇기(0.3.0), 보낸 줄·처리 기록 정리(0.4.0), RELEASE 사유 CANCELED·쪽지 RETURN(0.5.0), 화면 알림 NOTIFICATION(0.6.0)
+    implementation 'com.freshlink:common:0.7.1'                               // 쪽지 DTO 9종, ErrorCode·BusinessException·ErrorResponse, Outbox traceparent 잇기(0.3.0), 보낸 줄·처리 기록 정리(0.4.0), RELEASE 사유 CANCELED·쪽지 RETURN(0.5.0), 화면 알림 NOTIFICATION(0.6.0), 주문 알림 종류(0.7.0, inventory는 안 씀), Outbox 발행 실패 때 같은 큐·그룹만 건너뜀(0.7.1)
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'        // REST API
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'      // MySQL 접근
     implementation 'org.springframework.boot:spring-boot-starter-validation'    // @Valid
