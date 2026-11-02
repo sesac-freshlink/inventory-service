@@ -3,6 +3,7 @@ package com.freshlink.inventory.domain.recommendation;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -59,6 +60,32 @@ public class ProductRecommendationService {
         }
         log.info("추천상품 변경: storeId={}, productId={}, recommended={}", storeId, productId, recommended);
         return toResponse(product, recommended);
+    }
+
+    /**
+     * 여러 상품을 한 번에 켜거나 끈다. 상품을 먼저 모두 확인해 없는 상품이 하나라도 있으면 아무것도 바꾸지 않는다(404).
+     * 한 개씩 바꿀 때와 같은 문장(INSERT IGNORE, 조건 있는 DELETE)이라 다시 보내도 결과가 같다. 결과는 이름순
+     */
+    @Transactional
+    public List<ProductRecommendationResponse> setAll(Long storeId, List<Long> productIds, boolean recommended) {
+        Set<Long> ids = new LinkedHashSet<>(productIds);
+        List<Product> products = productRepository.findAllById(ids);
+        if (products.size() != ids.size()) {
+            throw new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND);
+        }
+        LocalDateTime now = LocalDateTime.now(clock);
+        for (Long productId : ids) {
+            if (recommended) {
+                recommendationRepository.add(storeId, productId, now);
+            } else {
+                recommendationRepository.remove(storeId, productId);
+            }
+        }
+        log.info("추천상품 한 번에 변경: storeId={}, products={}, recommended={}", storeId, ids.size(), recommended);
+        return products.stream()
+                .sorted(Comparator.comparing(Product::getName).thenComparing(Product::getId))
+                .map(product -> toResponse(product, recommended))
+                .toList();
     }
 
     private static ProductRecommendationResponse toResponse(Product product, boolean recommended) {

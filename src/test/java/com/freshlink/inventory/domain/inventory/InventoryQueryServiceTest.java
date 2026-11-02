@@ -40,6 +40,9 @@ class InventoryQueryServiceTest {
     @Mock
     InventorySearchRepository inventorySearchRepository;
 
+    @Mock
+    LedgerRepository ledgerRepository;
+
     private InventoryQueryService service;
 
     @BeforeEach
@@ -53,6 +56,7 @@ class InventoryQueryServiceTest {
                 productRepository,
                 calculationService,
                 inventorySearchRepository,
+                ledgerRepository,
                 clock
         );
     }

@@ -2,6 +2,8 @@ package com.freshlink.inventory.domain.recommendation;
 
 import java.util.List;
 
+import jakarta.validation.Valid;
+
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
@@ -9,6 +11,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -52,5 +55,14 @@ public class ProductRecommendationController {
             @PathVariable Long productId
     ) {
         return recommendationService.set(storeId, productId, false);
+    }
+
+    @Operation(summary = "추천상품 여러 개를 한 번에 켜거나 끈다 (없는 상품이 하나라도 있으면 아무것도 바꾸지 않고 404)")
+    @PutMapping
+    public List<ProductRecommendationResponse> setAll(
+            @RequestHeader(STORE_ID_HEADER) Long storeId,
+            @Valid @RequestBody BulkRecommendationRequest request
+    ) {
+        return recommendationService.setAll(storeId, request.productIds(), request.recommended());
     }
 }

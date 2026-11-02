@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -26,6 +27,7 @@ public class InventoryQueryService {
     private final ProductRepository productRepository;
     private final InventoryCalculationService calculationService;
     private final InventorySearchRepository inventorySearchRepository;
+    private final LedgerRepository ledgerRepository;
     private final Clock clock;
 
     public InventoryQueryService(
@@ -33,18 +35,22 @@ public class InventoryQueryService {
             ProductRepository productRepository,
             InventoryCalculationService calculationService,
             InventorySearchRepository inventorySearchRepository,
+            LedgerRepository ledgerRepository,
             Clock clock
     ) {
         this.inventoryLotRepository = inventoryLotRepository;
         this.productRepository = productRepository;
         this.calculationService = calculationService;
         this.inventorySearchRepository = inventorySearchRepository;
+        this.ledgerRepository = ledgerRepository;
         this.clock = clock;
     }
 
     /** 한 페이지 최대 크기. 화면 기본은 DEFAULT_PAGE_SIZE */
     static final int MAX_PAGE_SIZE = 100;
     static final int DEFAULT_PAGE_SIZE = 20;
+    /** 재고 소진 예상: 이 기간(일)의 하루 평균 순판매로 남은 일수를 센다 */
+    static final int SALES_PACE_DAYS = 7;
 
     /**
      * S-10 점주 재고 목록 한 페이지. 집계·검색·자르기는 InventorySearchRepository의 SQL 한 번으로 한다.
@@ -59,8 +65,11 @@ public class InventoryQueryService {
         }
         LocalDateTime now = LocalDateTime.now(clock);
 
+        Map<Long, Integer> netSold = netSoldByProduct(storeId, now);
         List<InventorySummaryResponse> items = inventorySearchRepository.search(
-                storeId, condition, now, pageNumber * pageSize, pageSize);
+                        storeId, condition, now, pageNumber * pageSize, pageSize).stream()
+                .map(item -> item.withSalesPace(netSold.getOrDefault(item.productId(), 0), SALES_PACE_DAYS))
+                .toList();
         long total = inventorySearchRepository.count(storeId, condition, now);
         long lowStockCount = inventorySearchRepository.count(
                 storeId, InventorySearchCondition.lowStockOnly(), now);
@@ -73,6 +82,21 @@ public class InventoryQueryService {
                 (int) ((total + pageSize - 1) / pageSize),
                 lowStockCount
         );
+    }
+
+    /**
+     * 재고 소진 예상에 쓰는 최근 SALES_PACE_DAYS일 순판매(판매 − 환불). 판매는 음수, 환불 복원은 양수라 둘을 더하면 −(순판매).
+     * 끝은 "미만"이라 지금 막 생긴 원장까지 넣으려고 1초 뒤로 둔다(추천순과 같다). 점포 하나에 GROUP BY 쿼리 한 번
+     */
+    private Map<Long, Integer> netSoldByProduct(Long storeId, LocalDateTime now) {
+        Map<Long, Integer> sold = new HashMap<>();
+        for (ProductLedgerSum sum : ledgerRepository.sumByProductAndType(
+                storeId, now.minusDays(SALES_PACE_DAYS), now.plusSeconds(1))) {
+            if (sum.type() == LedgerType.SALE || sum.type() == LedgerType.RETURN) {
+                sold.merge(sum.productId(), Math.toIntExact(-sum.quantity()), Integer::sum);
+            }
+        }
+        return sold;
     }
 
     private OffsetDateTime toOffsetDateTime(LocalDateTime dateTime) {

@@ -2,6 +2,11 @@ package com.freshlink.inventory.domain.disposal;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 import com.freshlink.common.error.BusinessException;
 import com.freshlink.common.message.command.DisposeMessage;
@@ -68,18 +73,46 @@ public class DisposalService {
             throw new BusinessException(InventoryErrorCode.INVALID_QUANTITY);
         }
 
-        Disposal disposal = disposalRepository.save(Disposal.request(
-                storeId,
-                lot.getId(),
-                quantity,
-                userId,
-                LocalDateTime.now(clock)
-        ));
+        return save(storeId, userId, lot.getId(), quantity, LocalDateTime.now(clock));
+    }
+
+    /**
+     * 경과 lot 한 번에 폐기. 그 점포에서 기한이 지난 lot마다 폐기 가능 수량(수량 − 예약) 전부를 lot 하나씩 요청한다.
+     * 이미 요청해 두고 아직 처리 전(REQUESTED)인 수량은 빼서, 버튼을 두 번 눌러도 같은 수량을 또 요청하지 않는다.
+     * 버릴 lot이 없으면 빈 목록이다(오류 아님). 재고는 단건 폐기와 똑같이 DISPOSE 쪽지를 처리할 때 줄어든다.
+     */
+    @Transactional
+    public ExpiredDisposalResponse requestExpired(Long storeId, String userId) {
+        LocalDateTime now = LocalDateTime.now(clock);
+
+        Map<Long, Integer> pending = new HashMap<>();
+        for (Disposal requested : disposalRepository.findByStoreIdAndStatus(storeId, DisposalStatus.REQUESTED)) {
+            pending.merge(requested.getLotId(), requested.getQuantity(), Integer::sum);
+        }
+
+        List<DisposalResponse> items = inventoryLotRepository.findByStoreId(storeId).stream()
+                .filter(lot -> calculationService.calculateStatus(lot) == InventoryLotStatus.EXPIRED)
+                .sorted(Comparator.comparing(InventoryLot::getExpiryDate).thenComparing(InventoryLot::getId))
+                .map(lot -> {
+                    int quantity = lot.availableQuantity() - pending.getOrDefault(lot.getId(), 0);
+                    return quantity > 0 ? save(storeId, userId, lot.getId(), quantity, now) : null;
+                })
+                .filter(Objects::nonNull)
+                .toList();
+
+        log.info("경과 lot 한 번에 폐기 요청: storeId={}, lots={}, quantity={}", storeId, items.size(),
+                items.stream().mapToInt(DisposalResponse::quantity).sum());
+        return new ExpiredDisposalResponse(items.size(), items.stream().mapToInt(DisposalResponse::quantity).sum(), items);
+    }
+
+    /** disposal(REQUESTED)과 DISPOSE 쪽지를 같은 트랜잭션에 저장한다 */
+    private DisposalResponse save(Long storeId, String userId, Long lotId, int quantity, LocalDateTime now) {
+        Disposal disposal = disposalRepository.save(Disposal.request(storeId, lotId, quantity, userId, now));
 
         outboxWriter.save(commandsQueue, DisposeMessage.of(
                 disposal.getId(),
                 storeId,
-                lot.getId(),
+                lotId,
                 quantity,
                 userId
         ));
@@ -88,10 +121,10 @@ public class DisposalService {
                 "폐기 요청: disposalId={}, storeId={}, lotId={}, quantity={}",
                 disposal.getId(),
                 storeId,
-                lot.getId(),
+                lotId,
                 quantity
         );
 
-        return new DisposalResponse(disposal.getId(), lot.getId(), quantity);
+        return new DisposalResponse(disposal.getId(), lotId, quantity);
     }
 }

@@ -57,7 +57,9 @@ class InventoryControllerTest {
                 0,
                 5,
                 false,
-                true
+                true,
+                2.5,
+                7
         );
 
         when(inventoryQueryService.searchInventory(eq(1L), any(), any(), any()))

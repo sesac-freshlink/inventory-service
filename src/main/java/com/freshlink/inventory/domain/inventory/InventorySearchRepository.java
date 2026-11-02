@@ -139,7 +139,9 @@ public class InventorySearchRepository {
                 rs.getInt("expired_lot_count"),
                 safetyStock,
                 available < safetyStock,
-                rs.getBoolean("has_memo")
+                rs.getBoolean("has_memo"),
+                0.0,
+                null // 소진 예상은 InventoryQueryService가 원장으로 채운다
         );
     };
 }
