@@ -31,8 +31,11 @@ public class InventoryCalculationService {
     }
 
     InventoryLotStatus calculateStatus(InventoryLot lot, LocalDateTime now) {
-        LocalDateTime expiryDate = lot.getExpiryDate();
+        return calculateStatus(lot.getExpiryDate(), now);
+    }
 
+    /** 경과 = 기한 ≤ 지금, 임박 = 지금 < 기한 ≤ 지금 + 24시간, 나머지 정상 */
+    InventoryLotStatus calculateStatus(LocalDateTime expiryDate, LocalDateTime now) {
         if (!expiryDate.isAfter(now)) {
             return InventoryLotStatus.EXPIRED;
         }

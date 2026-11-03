@@ -94,6 +94,22 @@ public class Ledger {
         return ledger;
     }
 
+    /** 환불 뒤 판매 복원. 판매를 되돌리므로 수량은 양수로 저장한다. refId는 판매와 같은 주문 ID */
+    public static Ledger returned(
+            Long storeId,
+            Long lotId,
+            int quantity,
+            String orderId
+    ) {
+        Ledger ledger = new Ledger();
+        ledger.storeId = storeId;
+        ledger.lotId = lotId;
+        ledger.type = LedgerType.RETURN;
+        ledger.quantity = quantity;
+        ledger.refId = orderId;
+        return ledger;
+    }
+
     /** 수동 조정. 수량은 증감 그대로 저장한다(늘리면 +, 줄이면 −) */
     public static Ledger adjust(
             Long storeId,

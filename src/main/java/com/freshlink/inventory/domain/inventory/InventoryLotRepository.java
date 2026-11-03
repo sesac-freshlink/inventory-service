@@ -13,6 +13,10 @@ public interface InventoryLotRepository extends JpaRepository<InventoryLot, Long
 
     List<InventoryLot> findByStoreId(Long storeId);
 
+    /** 그 점포에 lot이 하나라도 있는 상품 ID. 점주 재고 목록(S-10)에 나오는 상품과 같다(수량이 0이 된 lot도 센다) */
+    @Query("SELECT DISTINCT l.productId FROM InventoryLot l WHERE l.storeId = :storeId")
+    List<Long> findProductIdsByStoreId(@Param("storeId") Long storeId);
+
     List<InventoryLot> findByStoreIdAndProductIdOrderByExpiryDateAscIdAsc(
             Long storeId,
             Long productId
@@ -31,33 +35,73 @@ public interface InventoryLotRepository extends JpaRepository<InventoryLot, Long
             LocalDateTime expiryDate
     );
 
-    /** 스케줄러(E-09). 수량이 남은 경과 lot을 EXPIRED로. 바뀐 건수를 돌려준다 */
-    @Modifying(clearAutomatically = true)
+    /**
+     * 유통기한 달력. 기한이 [from, toExclusive) 안에 끝나고 수량이 남은 lot을 상품과 묶어 기한 → 상품명 순으로.
+     * 점포·기한 조건은 idx_lot_store_expiry 인덱스를 탄다
+     */
     @Query("""
-            UPDATE InventoryLot l
-            SET l.status = :status, l.updatedAt = :now
-            WHERE l.quantity > 0
-              AND l.expiryDate <= :now
-              AND l.status <> :status
+            SELECT new com.freshlink.inventory.domain.inventory.ExpiryLotRow(
+                l.id, p.id, p.productCode, p.name, l.expiryDate, l.quantity, l.reservedQuantity
+            )
+            FROM InventoryLot l
+            JOIN Product p ON p.id = l.productId
+            WHERE l.storeId = :storeId
+              AND l.quantity > 0
+              AND l.expiryDate >= :from
+              AND l.expiryDate < :toExclusive
+            ORDER BY l.expiryDate, p.name, l.id
             """)
-    int markExpired(
-            @Param("now") LocalDateTime now,
-            @Param("status") InventoryLotStatus status
+    List<ExpiryLotRow> findExpiringBetween(
+            @Param("storeId") Long storeId,
+            @Param("from") LocalDateTime from,
+            @Param("toExclusive") LocalDateTime toExclusive
     );
 
-    /** 스케줄러(E-09). 수량이 남은 24시간 이내 lot을 IMMINENT로. 바뀐 건수를 돌려준다 */
-    @Modifying(clearAutomatically = true)
+    /**
+     * 스케줄러(E-09)가 EXPIRED로 바꿀 lot: 수량이 남았고 기한이 지났는데 아직 EXPIRED가 아닌 것.
+     * 바뀌는 순간에 한 번만 알림을 보내려고 UPDATE 전에 먼저 읽는다. 상품이 없어도 상태는 바꾸므로 LEFT JOIN(상품명 null)
+     */
     @Query("""
-            UPDATE InventoryLot l
-            SET l.status = :status, l.updatedAt = :now
+            SELECT new com.freshlink.inventory.domain.inventory.LotTransitionRow(
+                l.id, l.storeId, l.productId, p.name, l.expiryDate, l.quantity
+            )
+            FROM InventoryLot l
+            LEFT JOIN Product p ON p.id = l.productId
+            WHERE l.quantity > 0
+              AND l.expiryDate <= :now
+              AND l.status <> com.freshlink.inventory.domain.inventory.InventoryLotStatus.EXPIRED
+            ORDER BY l.id
+            """)
+    List<LotTransitionRow> findBecomingExpired(@Param("now") LocalDateTime now);
+
+    /** 스케줄러(E-09)가 IMMINENT로 바꿀 lot: 수량이 남았고 24시간 안에 기한이 끝나는데 아직 IMMINENT가 아닌 것 */
+    @Query("""
+            SELECT new com.freshlink.inventory.domain.inventory.LotTransitionRow(
+                l.id, l.storeId, l.productId, p.name, l.expiryDate, l.quantity
+            )
+            FROM InventoryLot l
+            LEFT JOIN Product p ON p.id = l.productId
             WHERE l.quantity > 0
               AND l.expiryDate > :now
               AND l.expiryDate <= :imminentUntil
-              AND l.status <> :status
+              AND l.status <> com.freshlink.inventory.domain.inventory.InventoryLotStatus.IMMINENT
+            ORDER BY l.id
             """)
-    int markImminent(
+    List<LotTransitionRow> findBecomingImminent(
             @Param("now") LocalDateTime now,
-            @Param("imminentUntil") LocalDateTime imminentUntil,
-            @Param("status") InventoryLotStatus status
+            @Param("imminentUntil") LocalDateTime imminentUntil
+    );
+
+    /** 미리 읽은 lot들만 상태를 바꾼다. 읽은 뒤에 생긴 lot이 알림 없이 바뀌지 않게 id로 좁힌다 */
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            UPDATE InventoryLot l
+            SET l.status = :status, l.updatedAt = :now
+            WHERE l.id IN :ids
+            """)
+    int markStatus(
+            @Param("ids") List<Long> ids,
+            @Param("status") InventoryLotStatus status,
+            @Param("now") LocalDateTime now
     );
 }

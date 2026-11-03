@@ -7,6 +7,8 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -19,6 +21,8 @@ import com.freshlink.common.message.command.DisposeMessage;
 import com.freshlink.common.message.command.InboundMessage;
 import com.freshlink.common.message.command.ReleaseMessage;
 import com.freshlink.common.message.command.ReserveMessage;
+import com.freshlink.common.message.command.ReturnMessage;
+import com.freshlink.common.message.notification.NotificationMessage;
 import com.freshlink.common.message.result.ReserveFailReason;
 import com.freshlink.common.message.result.ReserveFailedMessage;
 import com.freshlink.common.message.result.ReservedLot;
@@ -27,10 +31,12 @@ import com.freshlink.common.outbox.OutboxWriter;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
 import com.freshlink.inventory.domain.disposal.Disposal;
 import com.freshlink.inventory.domain.disposal.DisposalRepository;
+import com.freshlink.inventory.domain.firstcome.FirstComeService;
 import com.freshlink.inventory.domain.inbound.Inbound;
 import com.freshlink.inventory.domain.inbound.InboundRepository;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
+import com.freshlink.inventory.domain.storestock.StockChangePublisher;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -51,7 +57,10 @@ public class InventoryCommandService {
     private final ReservationRepository reservationRepository;
     private final DisposalRepository disposalRepository;
     private final OutboxWriter outboxWriter;
+    private final StockChangePublisher stockChanges;
+    private final FirstComeService firstComeService;
     private final String resultsQueue;
+    private final String notificationQueue;
     private final Clock clock;
 
     public InventoryCommandService(
@@ -63,7 +72,10 @@ public class InventoryCommandService {
             ReservationRepository reservationRepository,
             DisposalRepository disposalRepository,
             OutboxWriter outboxWriter,
+            StockChangePublisher stockChanges,
+            FirstComeService firstComeService,
             @Value("${app.queue.results}") String resultsQueue,
+            @Value("${app.queue.notifications}") String notificationQueue,
             Clock clock
     ) {
         this.processedMessages = processedMessages;
@@ -74,7 +86,10 @@ public class InventoryCommandService {
         this.reservationRepository = reservationRepository;
         this.disposalRepository = disposalRepository;
         this.outboxWriter = outboxWriter;
+        this.stockChanges = stockChanges;
+        this.firstComeService = firstComeService;
         this.resultsQueue = resultsQueue;
+        this.notificationQueue = notificationQueue;
         this.clock = clock;
     }
 
@@ -95,6 +110,8 @@ public class InventoryCommandService {
             handleRelease(releaseMessage);
         } else if (message instanceof DisposeMessage disposeMessage) {
             handleDispose(disposeMessage);
+        } else if (message instanceof ReturnMessage returnMessage) {
+            handleReturn(returnMessage);
         } else {
             throw new IllegalArgumentException(
                     "지원하지 않는 inventory command type: " + message.type()
@@ -109,8 +126,17 @@ public class InventoryCommandService {
             return;
         }
 
+        // 재입고 알림: 입고 전에 팔 수 있는 수량이 0이던 상품만. 같은 쪽지에 같은 상품이 여러 줄이어도 처음 값으로 본다
+        Map<Long, Integer> sellableBefore = new HashMap<>();
         for (InboundItem item : message.items()) {
-            processInboundItem(message, item);
+            productRepository.findByProductCode(item.productCode())
+                    .ifPresent(product -> sellableBefore.computeIfAbsent(
+                            product.getId(), id -> sellable(message.storeId(), id)));
+        }
+
+        Set<Long> productIds = new TreeSet<>();
+        for (InboundItem item : message.items()) {
+            productIds.add(processInboundItem(message, item));
         }
 
         inboundRepository.save(Inbound.create(
@@ -118,9 +144,12 @@ public class InventoryCommandService {
                 message.storeId(),
                 LocalDateTime.now(clock)
         ));
+        stockChanges.publish(message.storeId(), productIds);
+        saveRestocked(message.storeId(), productIds, sellableBefore);
     }
 
-    private void processInboundItem(
+    /** lot에 더하고 원장을 남긴다. 고객용 조회 표를 다시 계산하도록 상품 ID를 돌려준다 */
+    private Long processInboundItem(
             InboundMessage message,
             InboundItem item
     ) {
@@ -173,6 +202,7 @@ public class InventoryCommandService {
                 item.quantity(),
                 message.shipmentId()
         ));
+        return product.getId();
     }
 
     private void handleReserve(ReserveMessage message) {
@@ -216,6 +246,18 @@ public class InventoryCommandService {
         int availableQuantity = lots.stream()
                 .mapToInt(InventoryLot::availableQuantity)
                 .sum();
+        // 선착순 상품이면 한도에서 남은 만큼만 잡을 수 있다. 넘으면 재고 부족과 같은 결과(OUT_OF_STOCK)로 거절한다
+        Integer firstComeLeft = firstComeService.limitLeft(message.storeId(), message.productId());
+        if (firstComeLeft != null && firstComeLeft < availableQuantity) {
+            log.info(
+                    "RESERVE 선착순 한도 적용: orderId={}, productId={}, available={}, limitLeft={}",
+                    message.orderId(),
+                    message.productId(),
+                    availableQuantity,
+                    firstComeLeft
+            );
+            availableQuantity = firstComeLeft;
+        }
         if (availableQuantity < message.quantity()) {
             log.info(
                     "RESERVE 재고 부족: orderId={}, productId={}, quantity={}, available={}",
@@ -251,6 +293,7 @@ public class InventoryCommandService {
             ));
             remaining -= quantity;
         }
+        stockChanges.publish(message.storeId(), List.of(message.productId()));
 
         outboxWriter.save(resultsQueue, ReservedMessage.of(
                 message.orderId(),
@@ -367,6 +410,7 @@ public class InventoryCommandService {
                     String.valueOf(message.orderId())
             ));
         }
+        stockChanges.publish(message.storeId(), productIdsOf(lots));
 
         log.info(
                 "CONFIRM 처리: orderId={}, lots={}",
@@ -375,7 +419,7 @@ public class InventoryCommandService {
         );
     }
 
-    /** 결제 실패·미결제 만료. RESERVED 예약을 되돌린다. 원장은 남기지 않는다 (명세 5-5) */
+    /** 결제 실패·미결제 만료·결제 전 고객 취소(CANCELED, v0.5.0). RESERVED 예약을 되돌린다. 원장은 남기지 않는다 (명세 5-5) */
     private void handleRelease(ReleaseMessage message) {
         List<Reservation> reserved = reservationRepository
                 .findByOrderIdOrderByIdAsc(message.orderId())
@@ -397,12 +441,64 @@ public class InventoryCommandService {
             lots.get(reservation.getLotId()).release(reservation.getQuantity());
             reservation.release();
         }
+        stockChanges.publish(message.storeId(), productIdsOf(lots));
 
         log.info(
                 "RELEASE 처리: orderId={}, reason={}, lots={}",
                 message.orderId(),
                 message.reason(),
                 reserved.size()
+        );
+    }
+
+    /**
+     * 환불 뒤 판매 재고 복원 (A10, v0.5.0). 쪽지에는 주문 ID·점포만 있어서, 그 주문의 판매 기록(SALE, ref_id = 주문 ID)으로
+     * 원래 lot과 수량을 찾아 실물을 되돌리고 원장에 RETURN(+n)을 남긴다.
+     * <ul>
+     *   <li>주문당 한 번만 복원한다. messageId가 달라도 같은 주문의 RETURN 원장이 이미 있으면 아무것도 안 한다.</li>
+     *   <li>판매 기록이 없으면(CONFIRM 전에 왔거나 잘못된 주문) 예외로 끝내 재시도·DLQ로 보낸다. 같은 점포 쪽지는 한 줄이라
+     *       order가 CONFIRM 뒤에 보내면 이 경우는 생기지 않는다.</li>
+     *   <li>유통기한이 지난 lot도 원래 lot에 그대로 되돌린다. 경과 lot은 이미 판매·예약에서 빠지므로 점주가 폐기로 정리한다.</li>
+     * </ul>
+     */
+    private void handleReturn(ReturnMessage message) {
+        String orderId = String.valueOf(message.orderId());
+        if (ledgerRepository.existsByStoreIdAndTypeAndRefId(message.storeId(), LedgerType.RETURN, orderId)) {
+            log.info(
+                    "RETURN 이미 복원한 주문: orderId={}, storeId={}, messageId={}",
+                    message.orderId(),
+                    message.storeId(),
+                    message.messageId()
+            );
+            return;
+        }
+
+        List<Ledger> sales = ledgerRepository.findByStoreIdAndTypeAndRefIdOrderByIdAsc(
+                message.storeId(), LedgerType.SALE, orderId);
+        if (sales.isEmpty()) {
+            throw new IllegalStateException(
+                    "RETURN 되돌릴 판매 기록이 없다: orderId=" + message.orderId()
+                            + ", storeId=" + message.storeId()
+            );
+        }
+
+        Map<Long, InventoryLot> lots = new HashMap<>();
+        for (Ledger sale : sales) {
+            InventoryLot lot = inventoryLotRepository.findById(sale.getLotId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "판매 기록의 lot이 없다: ledgerId=" + sale.getId() + ", lotId=" + sale.getLotId()));
+            int quantity = -sale.getQuantity();
+            lot.addQuantity(quantity);
+            ledgerRepository.save(Ledger.returned(lot.getStoreId(), lot.getId(), quantity, orderId));
+            lots.put(lot.getId(), lot);
+        }
+        stockChanges.publish(message.storeId(), productIdsOf(lots));
+
+        log.info(
+                "RETURN 처리: orderId={}, lots={}, quantity={}",
+                message.orderId(),
+                lots.size(),
+                sales.stream().mapToInt(sale -> -sale.getQuantity()).sum()
         );
     }
 
@@ -448,6 +544,7 @@ public class InventoryCommandService {
                 String.valueOf(disposal.getId())
         ));
         disposal.done(now);
+        stockChanges.publish(lot.getStoreId(), List.of(lot.getProductId()));
 
         log.info(
                 "DISPOSE 처리: disposalId={}, lotId={}, quantity={}",
@@ -455,6 +552,46 @@ public class InventoryCommandService {
                 lot.getId(),
                 quantity
         );
+    }
+
+    /**
+     * 입고로 팔 수 있는 수량이 0 → 1 이상이 된 상품마다 재입고 알림 쪽지(RESTOCKED)를 같은 트랜잭션의 Outbox로 남긴다.
+     * 이미 남아 있던 상품에 더해진 입고는 보내지 않는다. 신청한 고객이 있는지는 notification-service가 본다.
+     * RETURN·RELEASE로 다시 생긴 수량은 재입고가 아니라서 여기(INBOUND)에서만 보낸다
+     */
+    private void saveRestocked(Long storeId, Set<Long> productIds, Map<Long, Integer> sellableBefore) {
+        for (Long productId : productIds) {
+            if (sellableBefore.getOrDefault(productId, 0) > 0) {
+                continue;
+            }
+            int after = sellable(storeId, productId);
+            if (after < 1) {
+                continue;
+            }
+            Product product = productRepository.findById(productId)
+                    .orElseThrow(() -> new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND));
+            outboxWriter.save(notificationQueue,
+                    NotificationMessage.restocked(storeId, productId, product.getName(), after));
+            log.info("재입고 알림 쪽지: storeId={}, productId={}, sellable={}", storeId, productId, after);
+        }
+    }
+
+    /** 지금 팔 수 있는 수량 = 기한이 안 지난 lot의 (실물 − 예약) 합. 고객 구매 가능 수량과 같은 규칙(S-31) */
+    private int sellable(Long storeId, Long productId) {
+        return inventoryLotRepository
+                .findByStoreIdAndProductIdAndExpiryDateAfterOrderByExpiryDateAscIdAsc(
+                        storeId, productId, LocalDateTime.now(clock))
+                .stream()
+                .mapToInt(InventoryLot::availableQuantity)
+                .sum();
+    }
+
+    /** 확정·해제가 건드린 lot들의 상품. 고객용 조회 표를 다시 계산할 대상 */
+    private static List<Long> productIdsOf(Map<Long, InventoryLot> lots) {
+        return lots.values().stream()
+                .map(InventoryLot::getProductId)
+                .distinct()
+                .toList();
     }
 
     /**

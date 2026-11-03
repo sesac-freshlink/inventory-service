@@ -167,8 +167,36 @@ class FailureScenarioTest {
         assertThatThrownBy(() -> MessageJson.fromJson(body))
                 .isInstanceOf(JacksonException.class);
         // 리스너도 JSON 예외를 삼키지 않고 그대로 던진다. 재전송·DLQ 이동은 SQS 설정 몫이라 이 테스트 밖이다(절차 문서 4장)
-        assertThatThrownBy(() -> inventoryCommandListener.onCommand(body))
+        assertThatThrownBy(() -> inventoryCommandListener.onCommand(body, "1"))
                 .isInstanceOf(JacksonException.class);
+    }
+
+    /**
+     * DLQ 재처리(가이드 6 5장)와 같은 순서: 상품코드가 없어 3번 실패 → 상품을 보정 → 같은 본문을 다시 받으면
+     * 한 번만 입고된다. 재처리가 겹쳐 같은 본문이 한 번 더 와도 processed_message가 막는다
+     */
+    @Test
+    void inboundFailedUntilDlqIsAppliedOnceAfterFixAndRedrive() {
+        InboundMessage message = new InboundMessage(newId(), NOW, 2309L, "SHP-T23-2309",
+                List.of(new InboundItem("P2309", 10, OffsetDateTime.parse(FRESH))));
+        String body = MessageJson.toJson(message);
+
+        for (String receiveCount : List.of("1", "2", "3")) {
+            assertThatThrownBy(() -> inventoryCommandListener.onCommand(body, receiveCount))
+                    .isInstanceOf(BusinessException.class);
+        }
+        assertThat(count("SELECT COUNT(*) FROM processed_message WHERE message_id = ?", message.messageId())).isZero();
+
+        insertProduct("P2309");
+        inventoryCommandListener.onCommand(body, "1");
+        inventoryCommandListener.onCommand(body, "1");
+
+        long lotId = jdbcTemplate.queryForObject(
+                "SELECT id FROM inventory_lot WHERE store_id = ?", Long.class, 2309L);
+        assertThat(lot(lotId)).containsEntry("quantity", 10);
+        assertThat(ledgerCount(lotId, "INBOUND")).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM inbound WHERE shipment_id = ?", message.shipmentId())).isEqualTo(1);
+        assertThat(count("SELECT COUNT(*) FROM processed_message WHERE message_id = ?", message.messageId())).isEqualTo(1);
     }
 
     @Test

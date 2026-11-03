@@ -16,10 +16,12 @@ import com.freshlink.inventory.domain.inventory.Ledger;
 import com.freshlink.inventory.domain.inventory.LedgerRepository;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
+import com.freshlink.inventory.domain.storestock.StockChangePublisher;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +47,7 @@ public class AdjustmentService {
     private final AdjustmentRepository adjustmentRepository;
     private final LedgerRepository ledgerRepository;
     private final ProductRepository productRepository;
+    private final StockChangePublisher stockChanges;
     private final Clock clock;
 
     public AdjustmentService(
@@ -52,12 +55,14 @@ public class AdjustmentService {
             AdjustmentRepository adjustmentRepository,
             LedgerRepository ledgerRepository,
             ProductRepository productRepository,
+            StockChangePublisher stockChanges,
             Clock clock
     ) {
         this.inventoryLotRepository = inventoryLotRepository;
         this.adjustmentRepository = adjustmentRepository;
         this.ledgerRepository = ledgerRepository;
         this.productRepository = productRepository;
+        this.stockChanges = stockChanges;
         this.clock = clock;
     }
 
@@ -108,6 +113,15 @@ public class AdjustmentService {
                 delta,
                 String.valueOf(adjustment.getId())
         ));
+
+        try {
+            stockChanges.publish(storeId, List.of(lot.getProductId()));
+        } catch (PessimisticLockingFailureException e) {
+            // 같은 상품의 다른 lot을 쪽지 처리가 동시에 바꾸며 서로 기다리면(교착) MySQL이 한쪽을 되돌린다.
+            // 쪽지 쪽이면 SQS가 다시 보내고, 조정 쪽이면 같은 409로 점주가 다시 하게 한다
+            log.warn("조정 충돌(교착): storeId={}, lotId={}, delta={}", storeId, lot.getId(), delta);
+            throw new BusinessException(InventoryErrorCode.LOT_CHANGED);
+        }
 
         log.info("재고 조정: adjustmentId={}, storeId={}, lotId={}, {} -> {}, reason={}",
                 adjustment.getId(), storeId, lot.getId(), before, lot.getQuantity(), request.reason());

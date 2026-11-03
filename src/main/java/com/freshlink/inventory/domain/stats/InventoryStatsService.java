@@ -27,9 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional(readOnly = true)
 public class InventoryStatsService {
 
-    /** from을 주지 않을 때 기간 길이(to 포함) */
-    static final int DEFAULT_DAYS = 7;
-
     private final LedgerRepository ledgerRepository;
     private final ProductRepository productRepository;
     private final Clock clock;
@@ -45,18 +42,12 @@ public class InventoryStatsService {
     }
 
     public InventoryStatsResponse getStats(Long storeId, LocalDate from, LocalDate to) {
-        // to를 빼면 오늘, from을 빼면 to까지 7일
-        LocalDate end = to != null ? to : LocalDate.now(clock);
-        LocalDate start = from != null ? from : end.minusDays(DEFAULT_DAYS - 1);
-
-        if (start.isAfter(end)) {
-            throw new BusinessException(InventoryErrorCode.INVALID_DATE_RANGE);
-        }
+        DateRange range = DateRange.of(from, to, clock);
 
         List<ProductLedgerSum> sums = ledgerRepository.sumByProductAndType(
                 storeId,
-                start.atStartOfDay(),
-                end.plusDays(1).atStartOfDay()
+                range.fromInclusive(),
+                range.toExclusive()
         );
 
         Map<Long, Map<LedgerType, Integer>> byProduct = new HashMap<>();
@@ -83,9 +74,11 @@ public class InventoryStatsService {
         int sold = rows.stream().mapToInt(ProductStatsResponse::soldQuantity).sum();
         int disposed = rows.stream().mapToInt(ProductStatsResponse::disposedQuantity).sum();
         int adjusted = rows.stream().mapToInt(ProductStatsResponse::adjustedQuantity).sum();
+        int returned = rows.stream().mapToInt(ProductStatsResponse::returnedQuantity).sum();
 
         return new InventoryStatsResponse(
-                start, end, inbound, sold, disposed, adjusted, disposalRate(sold, disposed), rows);
+                range.start(), range.end(), inbound, sold, disposed, adjusted, disposalRate(sold, disposed), rows,
+                returned);
     }
 
     private ProductStatsResponse toRow(Product product, Map<LedgerType, Integer> quantities) {
@@ -93,7 +86,9 @@ public class InventoryStatsService {
             throw new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND);
         }
 
-        int sold = quantities.getOrDefault(LedgerType.SALE, 0);
+        // 환불로 되돌린 수량은 판매에서 뺀다(순판매). 기간 밖에서 판매한 것을 기간 안에 환불하면 0 아래로 갈 수 있어 0에서 멈춘다
+        int returned = quantities.getOrDefault(LedgerType.RETURN, 0);
+        int sold = Math.max(0, quantities.getOrDefault(LedgerType.SALE, 0) - returned);
         int disposed = quantities.getOrDefault(LedgerType.DISPOSE, 0);
 
         return new ProductStatsResponse(
@@ -105,7 +100,8 @@ public class InventoryStatsService {
                 sold,
                 disposed,
                 quantities.getOrDefault(LedgerType.ADJUST, 0),
-                disposalRate(sold, disposed)
+                disposalRate(sold, disposed),
+                returned
         );
     }
 

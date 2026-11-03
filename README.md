@@ -31,7 +31,7 @@
 ```mermaid
 flowchart LR
     SIM["logistics-simulator"] -- "INBOUND" --> Q1[["inventory-commands.fifo<br/>그룹 = 점포"]]
-    ORD["order-service"] -- "RESERVE · CONFIRM · RELEASE" --> Q1
+    ORD["order-service"] -- "RESERVE · CONFIRM · RELEASE · RETURN" --> Q1
     INV -- "DISPOSE" --> Q1
     Q1 --> INV["inventory-service"]
     INV -- "RESERVED · RESERVE_FAILED" --> Q2[["inventory-results"]]
@@ -55,21 +55,29 @@ flowchart LR
 
 | ID | 기능 | API / 방식 | 완료 기준 |
 | --- | --- | --- | --- |
-| S-10 | 재고 목록 | `GET /owner/inventory` | 상품별 총 수량·예약 수량·구매 가능 수량. `safetyStock`·`lowStock`(구매 가능 < 안전재고) |
+| S-10 | 재고 목록 | `GET /owner/inventory` (선택 쿼리 `q` 상품명·상품 코드 검색, `status` IMMINENT·EXPIRED·SOLD_OUT·LOW_STOCK 쉼표로 여러 개(모두 만족), `memo=true` 메모 있는 상품만, `page` 0부터, `size` 1~100 기본 20) → `{items, page, size, totalElements, totalPages, lowStockCount}` | `items`는 상품별 총 수량·예약 수량·구매 가능 수량, `safetyStock`·`lowStock`(구매 가능 < 안전재고), `hasMemo`, 재고 소진 예상 `dailySales`(최근 7일 순판매 ÷ 7, 소수 첫째 자리)·`daysOfStock`(구매 가능 ÷ dailySales 내림, 최근 7일 판매가 없으면 null). 상품명 순. `lowStockCount`는 검색·필터와 상관없이 점포 전체 부족 상품 수. 집계·거르기·자르기를 SQL 한 번으로 한다(6장). 오류: 400 `INVALID_PAGE` |
 | S-11 | lot별 재고 | `GET /owner/inventory/{productId}/lots` | 유통기한별 수량 |
 | S-13 | 변동 이력 | `GET /owner/inventory/ledger` | 이력 합계가 현재 재고와 같다 |
 | S-15 | 실시간 반영 | `GET /owner/inventory` (점주 화면이 3초마다 조회) | 결제·입고·폐기 후 3초 안에 새로고침 없이 갱신 |
 | S-20 | 입고 처리 | INBOUND 쪽지 | 같은 shipmentId는 두 번 반영되지 않는다 |
 | S-30 | 임박 목록 | `GET /owner/inventory/expiring` | 24시간 이내·경과 lot 구분 |
+| 달력 | 유통기한 달력 | `GET /owner/inventory/expiry-calendar` (선택 쿼리 `month` = yyyy-MM, 빼면 이번 달) → `{month, days[{date, lotCount, quantity, lots[{lotId, productId, productCode, name, expiryDate, quantity, reservedQuantity, status}]}]}` | 그 달에 기한이 끝나는 lot(수량이 남은 것)을 날짜별로 묶는다. lot이 있는 날짜만. 날짜마다 lot 목록까지 줘서 화면이 날짜를 누를 때 다시 묻지 않는다. `status`는 지금 시각으로 계산(경과 = 기한 ≤ 지금, 임박 = 24시간 이내). 모양이 틀린 `month`는 400 |
 | S-31 | 기한 경과 판매 차단 | 내부 로직 | 경과 lot은 구매 가능 수량·예약에서 제외 |
 | S-32 | 폐기 | `POST /owner/disposals` 본문 `{lotId, quantity}` → **202** `{disposalId, lotId, quantity}`. 헤더 `X-Store-Id`·`X-User-Id`. 오류: 404 `LOT_NOT_FOUND`, 403 `LOT_NOT_IN_STORE`, 409 `NOT_DISPOSABLE`(정상 lot), 400 `VALIDATION_ERROR`(수량 1 미만)·`INVALID_QUANTITY`(폐기 가능 수량 초과) | 202 뒤 DISPOSE 쪽지를 처리하면 lot 수량 감소 + 원장 '폐기'. 처리 때 수량이 모자라면 SKIPPED |
 | S-33 | 폐기 요청 이력 | `GET /owner/disposals` (선택 쿼리 `status=REQUESTED\|DONE\|SKIPPED`, 최신순 최근 100건). 헤더 `X-Store-Id` | 202로 접수된 요청이 DONE(수량 감소)·SKIPPED(예약 때문에 재고 그대로)로 끝났는지 점주가 본다 |
+| S-32 | 경과 lot 한 번에 폐기 | `POST /owner/inventory/disposals/expired`(본문 없음) → **202** `{lotCount, quantity, items:[{disposalId, lotId, quantity}]}`. 헤더 `X-Store-Id`·`X-User-Id`. 버릴 lot이 없으면 0과 빈 목록 | 기한이 지난 lot마다 폐기 가능 수량 전부를 단건 폐기와 같은 방식(disposal REQUESTED + DISPOSE 쪽지)으로 요청한다. 처리 전(REQUESTED) 수량은 빼서 두 번 눌러도 같은 수량을 또 요청하지 않는다. gateway 라우트 `/api/owner/inventory/**` 아래라 gateway 변경 없음 |
 | S-40 | 안전재고 설정 | `GET /owner/inventory/safety-stocks` (상품 전체), `PUT /owner/inventory/safety-stocks/{productId}` 본문 `{safetyStock}`(0~999). 오류: 400 `VALIDATION_ERROR`, 404 `PRODUCT_NOT_FOUND` | 정하지 않은 상품은 기본값 5. 0이면 부족으로 표시하지 않는다. 재고를 바꾸지 않아 쪽지를 거치지 않는다 |
 | S-14 | 재고 수동 조정·실사 | `POST /owner/inventory/adjustments` 본문 `{lotId, delta, reason, memo?}` → **201** `{adjustmentId, lotId, delta, quantityBefore, quantityAfter}`. `delta` −999~999(0 제외), `reason` COUNT·DAMAGE·LOSS·OTHER. 헤더 `X-Store-Id`·`X-User-Id`. 오류: 404 `LOT_NOT_FOUND`, 403 `LOT_NOT_IN_STORE`, 400 `VALIDATION_ERROR`·`INVALID_QUANTITY`(0), 409 `BELOW_RESERVED`(예약 수량 아래로), 409 `LOT_CHANGED`(쪽지 처리와 겹침). `GET /owner/inventory/adjustments`는 최신순 최근 100건 | 쪽지를 거치지 않고 바로 lot 수량 변경 + 조정 기록 + 원장 ADJUST(±). 겹침은 낙관적 락으로 찾는다(2장) |
 | S-42 | 판매·폐기 통계 | `GET /owner/inventory/stats` (선택 쿼리 `from`·`to` 한국 날짜, 둘 다 포함. `to`를 빼면 오늘, `from`을 빼면 `to`까지 7일). 오류: 400 `INVALID_DATE_RANGE` | 원장을 상품·종류별로 `GROUP BY`해 입고·판매·폐기 수량, 조정 합계(±), 폐기율(폐기 ÷ (판매 + 폐기))을 준다. 금액은 order 몫이라 수량만 |
-| U-10 | 점포 상품 목록 | `GET /stores/{storeId}/products` | 상품 30개 전부. 입고가 없는 상품·점포도 `availableQuantity 0`, `soldOut true`로 나온다. `imageUrl`은 없으면 null |
-| E-01 | 점포별 순서 처리 (구현됨) | FIFO 큐 소비. RESERVE(FEFO 예약 → RESERVED/RESERVE_FAILED), CONFIRM, RELEASE, DISPOSE, INBOUND | 동시 예약 100건에도 재고가 음수가 되지 않는다 |
-| E-09 | 유통기한 스케줄러 (구현됨) | `app.expiry.cron`(기본 자정) + ShedLock `lotStatusJob` | 주기마다 임박·경과 상태 갱신 |
+| 순위 | 상품별 판매 순위 | `GET /owner/inventory/sales-ranking` (선택 쿼리 `from`·`to` 한국 날짜, 기본 오늘까지 7일. `limit` 1~100, 기본 10) → `{from, to, totalSoldQuantity, items[{rank, productId, productCode, name, category, imageUrl, soldQuantity, share}]}` | 판매 = 결제 확정으로 실물이 줄어든 수량(원장 SALE). 예약만 된 수량은 세지 않는다. 많이 판 순, 같은 수량은 같은 순위(1, 2, 2, 4). `share`는 기간 전체 판매 중 비중. 오류: 400 `INVALID_LIMIT`, 400 `INVALID_DATE_RANGE` |
+| 메모 | 점주 상품 메모 | `GET /owner/inventory/memos`(메모 있는 상품만, 최근 수정 순), `PUT /owner/inventory/memos/{productId}` 본문 `{content, version?}` → 200 `{productId, productCode, name, category, content, version, updatedAt}`, `DELETE /owner/inventory/memos/{productId}?version=` → 204 | 상품 하나에 메모 하나(200자), 처음 저장할 때 생긴다. 처음 만들 때는 `version` 없이, 고칠·지울 때는 읽은 `version`을 보낸다. 그 사이 다른 화면이 바꿨으면 409 `MEMO_CHANGED`(낙관적 락 `@Version`). 빈 내용 400, 없는 상품 404, 없는 메모 삭제는 204 |
+| 추천 | 점주 추천상품 | `GET /owner/inventory/recommendations`(상품 전체, 이름순, `recommended` 표시), `PUT`·`DELETE /owner/inventory/recommendations/{productId}`(다시 보내도 결과 같음), 여러 개 한 번에 `PUT /owner/inventory/recommendations` 본문 `{productIds:[…], recommended}`(1~100개, 결과는 이름순). 오류: 404 `PRODUCT_NOT_FOUND`(여러 개일 때 하나라도 없으면 아무것도 바꾸지 않음), 400 `VALIDATION_ERROR`(빈 목록) | 고객 목록 `recommended=true`와 '추천' 표시에 쓰인다. 설정값이라 쪽지를 거치지 않는다 |
+| 선착순 | 선착순 판매 한도 | 점주: `GET /owner/inventory/first-come`(상품 전체, 선착순이면 `limit`·`used`·`remaining`), `PUT /owner/inventory/first-come/{productId}` 본문 `{limit}`(1~999, 다시 보내면 한도만 바뀌고 센 수량은 이어짐), `DELETE`(끄기). order 대기열: `GET /stores/{storeId}/products/{productId}/first-come` → `{productId, limit, used, remaining}`(클러스터 안에서만, 선착순이 아니면 404 `FIRST_COME_NOT_FOUND`) | `used` = 켠 뒤 생긴 예약 중 RESERVED·CONFIRMED 수량(해제되면 자리가 다시 남, 환불은 자리를 안 냄). `remaining` = min(limit − used, 구매 가능 수량). 한도를 넘는 RESERVE는 RESERVE_FAILED(OUT_OF_STOCK, 남은 한도). 고객 목록·상세에 `firstCome` |
+| U-10 | 점포 상품 목록 | `GET /stores/{storeId}/products` 선택 쿼리: `q` 상품명 검색(50자까지), `category` 카테고리, `sort` `NAME`(기본, 상품명 순)·`POPULAR`(추천순: 최근 7일 순판매 = 판매 − 환불 복원, 많은 순), `recommended=true` 점주 추천상품만, `newOnly=true` 신상품(그 점포에 처음 입고된 지 7일 안)만. 응답 한 줄에 `recommended`·`newArrival`·`firstCome`·`nearestExpiry`(상세와 같은 값, 품절이면 null. 고객 화면 D-day 배지에 쓴다). 모르는 `sort`는 400. 카테고리 칩은 `GET /stores/{storeId}/products/categories`(상품 전체 카테고리, 가나다순) | 상품 30개 전부. 입고가 없는 상품·점포도 `availableQuantity 0`, `soldOut true`로 나온다 |
+| U-10 | 고객 상품 상세 | `GET /stores/{storeId}/products/{productId}` → `{productId, name, category, price, imageUrl, availableQuantity, soldOut, nearestExpiry, recommended, newArrival}` | 공개. 고객용 조회 표에서 읽는다. `nearestExpiry`는 먼저 받게 될 상품의 유통기한(남은 재고가 있는 미경과 lot 중 가장 빠른 기한 = 조회 표 `valid_until`, 예약은 FEFO). 품절이면 null. 없는 상품 404 `PRODUCT_NOT_FOUND`. **gateway에 이 경로(라우트·공개 허용)가 아직 없다**(요청 중) |
+| E-01 | 점포별 순서 처리 (구현됨) | FIFO 큐 소비. RESERVE(FEFO 예약 → RESERVED/RESERVE_FAILED), CONFIRM, RELEASE(사유 PAYMENT_FAILED·EXPIRED·CANCELED), RETURN(환불 뒤 판매 복원, A10), DISPOSE, INBOUND | 동시 예약 100건에도 재고가 음수가 되지 않는다 |
+| E-09 | 유통기한 스케줄러 (구현됨) | `app.expiry.cron`(기본 자정) + ShedLock `lotStatusJob` | 주기마다 임박·경과 상태 갱신. 바뀌는 lot마다 점주 화면 알림 쪽지(`EXPIRY_IMMINENT`·`EXPIRED`)를 같은 트랜잭션 Outbox로 남긴다(수량 0인 lot 제외, 같은 lot은 상태마다 한 번) |
+| N-01 | 화면 알림 쪽지 | common 0.6.0 `NotificationMessage` → `app.queue.notifications`(`${QUEUE_PREFIX}notification-events`, 표준 큐) | 유통기한 임박·경과(스케줄러), 재입고 `RESTOCKED`(INBOUND로 팔 수 있는 수량이 0 → 1 이상이 될 때만, 환불·해제로 돌아온 수량은 아님). 받는 사람과 문구는 notification-service가 정한다 |
 
 점주 API는 점포 ID를 주소로 받지 않고 항상 gateway가 붙여 준 `X-Store-Id` 헤더를 쓴다. `/owner/**`에 이 헤더가 없으면 403 `STORE_NOT_LINKED`다.
 
@@ -83,18 +91,24 @@ API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gatew
 | `inventory_lot` | id, store_id, product_id, expiry_date, quantity, reserved_quantity, version(낙관적 락) |
 | `reservation` | id, order_id, lot_id, quantity, status(RESERVED/CONFIRMED/RELEASED) |
 | `disposal` | id, store_id, lot_id, quantity, requested_by, status(REQUESTED/DONE/SKIPPED), created_at, processed_at |
-| `ledger` | id, store_id, lot_id, type(INBOUND/SALE/DISPOSE/ADJUST), quantity, ref_id, created_at |
+| `ledger` | id, store_id, lot_id, type(INBOUND/SALE/DISPOSE/ADJUST/RETURN), quantity, ref_id, created_at |
 | `adjustment` | id, store_id, lot_id, delta, quantity_before, quantity_after, reason, memo, adjusted_by, created_at |
 | `inbound` | id, shipment_id(유니크), store_id, received_at |
 | `safety_stock` | id, store_id, product_id, quantity(0~999), created_at, updated_at. (store_id, product_id) 유니크 |
-| `outbox`, `processed_message` | common 모듈이 쓰는 표 |
-| `shedlock` | 스케줄러·Outbox 발행기 잠금 |
+| `product_memo` | id, store_id, product_id, content(200자), version(낙관적 락), created_at, updated_at. (store_id, product_id) 유니크 |
+| `product_recommendation` | id, store_id, product_id, created_at. (store_id, product_id) 유니크. 행이 있으면 추천 (V8) |
+| `first_come_sale` | id, store_id, product_id, sale_limit(1~999), started_at(켠 시각, 한도를 바꿔도 그대로), created_at, updated_at. (store_id, product_id) 유니크 (V9) |
+| `store_product_stock` | id, store_id, product_id, available_quantity, valid_until, updated_at. (store_id, product_id) 유니크. 고객용 재고 조회 표(CQRS) |
+| `outbox`, `processed_message` | common 모듈이 쓰는 표. common 0.4.0부터 1시간마다 보낸 지 7일 지난 outbox 줄과 30일 지난 processed_message 줄을 지운다(안 보낸 줄은 남긴다) |
+| `shedlock` | 스케줄러·Outbox 발행기·common 정리 작업(`freshlink-message-cleanup`) 잠금 |
 
 상태가 바뀌는 길:
 
-- **reservation:** RESERVE로 `RESERVED` → CONFIRM이면 `CONFIRMED`(lot 실물·예약 감소, 원장 SALE) / RELEASE면 `RELEASED`(예약만 복원, 원장 없음). 확정·해제된 예약은 다시 바뀌지 않는다.
+- **reservation:** RESERVE로 `RESERVED` → CONFIRM이면 `CONFIRMED`(lot 실물·예약 감소, 원장 SALE) / RELEASE면 `RELEASED`(예약만 복원, 원장 없음). 결제 전 고객 취소(CANCELED)도 같은 RELEASE다. 확정·해제된 예약은 다시 바뀌지 않는다(환불 RETURN도 예약 상태는 그대로 두고 원장으로만 남긴다).
 - **disposal:** `POST /owner/disposals`로 `REQUESTED` → DISPOSE 쪽지 처리 때 `DONE`(lot 수량 감소, 원장 DISPOSE) / 폐기 가능 수량이 모자라면 `SKIPPED`(재고 그대로). 결과는 `GET /owner/disposals`(S-33)로 본다.
-- **ledger:** 실물이 바뀔 때만 한 줄 추가한다. 입고 `+n`(ref_id = shipmentId), 판매 `−n`(orderId), 폐기 `−n`(disposalId), 조정 `±n`(adjustmentId). lot별 합계 = `inventory_lot.quantity`.
+- **ledger:** 실물이 바뀔 때만 한 줄 추가한다. 입고 `+n`(ref_id = shipmentId), 판매 `−n`(orderId), 폐기 `−n`(disposalId), 조정 `±n`(adjustmentId), 환불 복원 `+n`(orderId, 판매한 lot에 그대로). lot별 합계 = `inventory_lot.quantity`.
+- **RETURN(common 0.5.0):** 쪽지에는 orderId·storeId만 온다. 그 주문의 판매 원장(SALE, ref_id = orderId)으로 lot과 수량을 찾아 실물을 되돌리고 RETURN을 남긴다. 주문당 한 번만(같은 주문의 RETURN 원장이 있으면 건너뜀), 판매 기록이 없으면 예외로 재시도·DLQ, 기한이 지난 lot도 원래 lot에 되돌린다(구매 가능 수량에는 안 들어가고 점주가 폐기로 정리). 판매 순위와 통계의 판매는 SALE − RETURN(순판매)이고, 통계에 `returnedQuantity`가 따로 있다.
+- **store_product_stock:** 재고를 바꾸는 처리(입고·예약·확정·해제·폐기·수동 조정)가 같은 트랜잭션 끝에서 그 상품의 구매 가능 수량을 lot에서 다시 계산해 넣는다(`StockChangePublisher` → `StockChanged` → `StoreStockProjector`). `valid_until`은 이 값이 맞는 마지막 시각(남은 재고가 있는 미경과 lot 중 가장 빠른 기한)이고, 지나면 고객 목록은 품절로 본다. 1분 정리 작업(`StoreStockRefreshScheduler`)이 그런 행을 다시 계산한다. 설계와 이유는 [docs/고객용-재고-조회-표-CQRS.md](docs/고객용-재고-조회-표-CQRS.md).
 - **inventory_lot.status:** 스케줄러가 갱신하는 표시용(NORMAL → IMMINENT → EXPIRED). 판단에는 이 값을 쓰지 않고 그때마다 `expiry_date`와 지금 시각으로 계산한다. 판매(구매 가능 수량·예약)는 `expiry_date > 지금`인 lot만, 폐기 요청은 계산한 상태가 임박(24시간 이내)·경과인 lot만 받는다(정상 lot은 409 `NOT_DISPOSABLE`).
 
 테이블은 **Flyway 마이그레이션**으로 만든다. `src/main/resources/db/migration/V1__init.sql`부터 순서대로 두고, 앱이 뜰 때 Flyway가 아직 안 적용된 파일을 순서대로 실행한다. JPA `ddl-auto`로 테이블을 만들지 않는다. 한 번 적용된 파일은 고치지 않고 `V2__...`처럼 새 파일을 추가한다.
@@ -106,12 +120,14 @@ API 문서(Swagger UI)는 `/swagger-ui.html`, 원본은 `/v3/api-docs`다. gatew
 - **동시 예약 시험:** [docs/동시성-테스트-절차.md](docs/동시성-테스트-절차.md)와 `scripts/e01-*`.
 - **상품 이미지:** `product.image_url`은 V5가 더미 상품 30개에 넣은 CU 편의점 사이트(cu.bgfretail.com)의 상품 이미지 주소다. 시연용이고 상업적으로 쓰지 않는다. 주소가 막히면 화면이 자리표시를 보여 준다.
 - **왜 FIFO 그룹과 낙관적 락인가:** [docs/동시성-설계-FIFO와-낙관적-락.md](docs/동시성-설계-FIFO와-낙관적-락.md). 줄을 세우지 않으면 무엇이 깨지는지 `FifoExperimentTest`로 직접 본다.
+- **점주 재고 목록 검색·페이지:** `InventorySearchRepository`가 lot을 상품별로 `GROUP BY` 하면서 검색어는 `WHERE`, 집계해야 나오는 상태(임박·경과·품절·부족)는 `HAVING`으로 거르고 `LIMIT/OFFSET`으로 한 페이지만 돌려준다. 상품이 많아져도 DB가 필요한 줄만 돌려준다. 시간에 따라 바뀌는 값(구매 가능·임박·경과)은 저장하지 않고 요청 때 지금 시각과 비교해 계산하므로 필터가 틀리지 않는다(고객용 조회 표와 다른 선택인 이유는 [docs/고객용-재고-조회-표-CQRS.md](docs/고객용-재고-조회-표-CQRS.md) 4-3).
+- **고객용 재고 조회 표(CQRS):** [docs/고객용-재고-조회-표-CQRS.md](docs/고객용-재고-조회-표-CQRS.md). lot 수량을 바꾸는 코드는 끝에서 `StockChangePublisher.publish`를 부른다. SQL로 lot을 직접 고치면 조회 표가 따라오지 않는다.
 - **dev에서 한 번에 확인할 것:** [docs/dev-확인-절차.md](docs/dev-확인-절차.md).
 - **쪽지 처리 지표:** `/actuator/prometheus`에 아래 두 가지가 나온다. Grafana에서 보는 식은 [docs/동시성-테스트-절차.md](docs/동시성-테스트-절차.md) 5-1.
 
 | 지표 | 태그 | 뜻 |
 | --- | --- | --- |
-| `inventory_command_seconds_count`·`_sum`·`_max`·`_bucket` | `type`(INBOUND·RESERVE·CONFIRM·RELEASE·DISPOSE·UNKNOWN), `result`(processed·duplicate·failed) | 쪽지 한 번 처리에 걸린 시간. `_count`가 건수다. duplicate는 같은 messageId를 다시 받아 건너뛴 것, failed는 예외로 되돌린 것(SQS가 다시 보내므로 시도마다 센다) |
+| `inventory_command_seconds_count`·`_sum`·`_max`·`_bucket` | `type`(INBOUND·RESERVE·CONFIRM·RELEASE·RETURN·DISPOSE·UNKNOWN), `result`(processed·duplicate·failed) | 쪽지 한 번 처리에 걸린 시간. `_count`가 건수다. duplicate는 같은 messageId를 다시 받아 건너뛴 것, failed는 예외로 되돌린 것(SQS가 다시 보내므로 시도마다 센다) |
 | `inventory_outbox_unpublished` | 없음 | 아직 보내지 않은 결과 쪽지 수. 0 근처가 정상이고 계속 늘면 outbox 발행이 막힌 것 |
 
 ## 7. 폴더 구조
@@ -133,8 +149,10 @@ inventory-service/
 │       ├── disposal/     # 폐기
 │       ├── adjustment/   # 수동 조정·실사(S-14)
 │       ├── safetystock/  # 안전재고 설정(S-40)
-│       ├── stats/        # 판매·폐기 통계(S-42)
-│       └── scheduler/    # 유통기한 스케줄러
+│       ├── memo/         # 점주 상품 메모
+│       ├── stats/        # 판매·폐기 통계(S-42), 상품별 판매 순위
+│       ├── storestock/   # 고객용 재고 조회 표(CQRS): 이벤트·받는 곳·정리
+│       └── scheduler/    # 유통기한 스케줄러, 조회 표 정리(1분)
 ├── src/main/resources/
 │   ├── application.yml                # 공통. 값은 환경 변수
 │   ├── application-dev.yml            # 로그 레벨만 다름
@@ -145,7 +163,7 @@ inventory-service/
 │   ├── TestcontainersConfiguration.java        # 테스트·로컬 실행용 MySQL 8.4 컨테이너
 │   ├── TestInventoryServiceApplication.java    # IntelliJ에서 DB 없이 실행할 때 이걸 Run
 │   ├── FixedClockConfiguration.java            # 지금 시각 고정(2026-10-25 12:00 KST). 쓰는 테스트끼리 컨테이너 하나를 같이 쓴다
-│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest, SafetyStockTest, InventoryStatsTest, AdjustmentTest, FifoExperimentTest  # 쪽지 처리·API·스케줄러
+│   ├── ReserveTest, ConfirmReleaseTest, DisposalTest, LotStatusTest, FailureScenarioTest, SafetyStockTest, InventoryStatsTest, AdjustmentTest, FifoExperimentTest, StoreStockTest, ProductMemoTest, SalesRankingTest, InventorySearchTest, StoreProductSearchTest, StoreProductDetailTest, ExpiryCalendarTest  # 쪽지 처리·API·스케줄러·조회 표
 │   └── common/error/GlobalExceptionHandlerTest.java   # 오류 응답 모양 (DB 없이)
 ├── scripts/                           # 동시 예약 100건 투입(e01-reserve-100.ps1)·집계·정리 SQL
 └── docs/                              # dev 확인·실패 시나리오·동시성 시험 절차
@@ -153,7 +171,7 @@ inventory-service/
 
 ## 7-1. 오류 처리
 
-규칙은 .github 레포 `docs/백엔드-공통-규칙.md` 6장. 응답 모양은 common 라이브러리, 오류 목록과 핸들러는 이 레포에 있다.
+규칙은 .github 레포 `docs/규칙/백엔드-공통-규칙.md` 6장. 응답 모양은 common 라이브러리, 오류 목록과 핸들러는 이 레포에 있다.
 
 | 할 일 | 방법 |
 | --- | --- |
@@ -165,7 +183,7 @@ inventory-service/
 
 > **DB 없이 IntelliJ에서 띄우기:** Docker Desktop을 켜고 `src/test/.../TestInventoryServiceApplication`을 Run 하면 Testcontainers가 MySQL 8.4 컨테이너를 띄워 연결한다. 환경 변수가 필요 없고, 끄면 컨테이너도 사라진다. 아래는 dev RDS에 붙일 때다.
 
-개발할 때도 AWS dev 환경의 RDS·SQS·Cognito를 그대로 쓴다. AWS 로그인, DB 포트 포워딩(SSM), 개인 큐 설정은 [개발 환경 접속 가이드](https://github.com/sesac-freshlink/.github/blob/main/docs/개발환경-접속.md)를 따른다.
+개발할 때도 AWS dev 환경의 RDS·SQS·Cognito를 그대로 쓴다. AWS 로그인, DB 포트 포워딩(SSM), 개인 큐 설정은 [개발 환경 접속 가이드](https://github.com/sesac-freshlink/.github/blob/main/docs/팀원-가이드/0-개발환경-접속.md)를 따른다.
 
 ```bash
 export SPRING_PROFILES_ACTIVE=dev
@@ -187,8 +205,10 @@ logistics-simulator로 입고 쪽지를 보내고 `GET /owner/inventory/ledger`�
 | `DB_URL` | MySQL 주소(`jdbc:mysql://…/inventory`) | 비어 있음. PC에서는 `TestInventoryServiceApplication`이 Testcontainers로 대신 붙는다 |
 | `DB_USERNAME` | DB 사용자 | `inventory_app` |
 | `DB_PASSWORD` | DB 비밀번호(비밀값) | 비어 있음 |
-| `QUEUE_PREFIX` | 큐 이름 앞부분. `app.queue.commands` = `<접두사>inventory-commands.fifo`, `app.queue.results` = `<접두사>inventory-results`. PC는 개인 큐(`dev-<이름>-`) | `dev-` |
+| `QUEUE_PREFIX` | 큐 이름 앞부분. `app.queue.commands` = `<접두사>inventory-commands.fifo`, `app.queue.results` = `<접두사>inventory-results`, `app.queue.notifications` = `<접두사>notification-events`(화면 알림). PC는 개인 큐(`dev-<이름>-`) | `dev-` |
 | `EXPIRY_CRON` | 유통기한 스케줄러 주기(`app.expiry.cron`, Spring cron 6자리, Asia/Seoul) | `0 0 0 * * *`(자정) |
+| `STORE_STOCK_REFRESH_MS` | 고객용 조회 표 정리 간격(`app.store-stock.refresh-delay-ms`, 밀리초) | `60000`(1분) |
+| `QUEUE_MAX_RECEIVE_COUNT` | 실패 로그에 "DLQ로 간다"를 붙이는 기준(`app.queue.max-receive-count`). infra `maxReceiveCount`와 같게 둔다 | `3` |
 | `AWS_REGION` | SQS 리전 | `ap-northeast-2` |
 | `GITHUB_ACTOR`, `GITHUB_TOKEN` | **의존성을 받을 때.** 빌드와 `./gradlew bootRun`이 common 라이브러리를 GitHub Packages에서 받는다(`read:packages`). Gradle 캐시에 이미 있으면 실행 때는 쓰지 않는다 | 의존성 해석 실패(빌드·실행이 시작되지 않음) |
 

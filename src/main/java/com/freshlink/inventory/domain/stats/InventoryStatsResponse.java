@@ -6,6 +6,7 @@ import java.util.List;
 import io.swagger.v3.oas.annotations.media.Schema;
 
 @Schema(description = "S-42 판매·폐기 통계. from·to는 한국 날짜(둘 다 포함). "
+        + "soldQuantity는 환불 복원을 뺀 순판매, returnedQuantity는 환불 복원 합계. "
         + "products는 기간 안에 변동이 있는 상품만, 폐기 많은 순")
 public record InventoryStatsResponse(
         LocalDate from,
@@ -15,6 +16,7 @@ public record InventoryStatsResponse(
         int disposedQuantity,
         int adjustedQuantity,
         Double disposalRate,
-        List<ProductStatsResponse> products
+        List<ProductStatsResponse> products,
+        int returnedQuantity
 ) {
 }
