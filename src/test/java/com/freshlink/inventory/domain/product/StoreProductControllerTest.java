@@ -33,7 +33,7 @@ class StoreProductControllerTest {
 
     @Test
     void 고객_상품목록은_헤더없이_200으로_응답한다() throws Exception {
-        when(storeProductService.getStoreProducts(1L, StoreProductQuery.of(null)))
+        when(storeProductService.getStoreProducts(1L, StoreProductQuery.of(null), null, null))
                 .thenReturn(List.of(
                         new StoreProductResponse(15L, "매운 컵라면 115g", "라면", 1700L,
                                 "https://img.example/P015.jpg", 5, false, true, false, false,
@@ -62,7 +62,7 @@ class StoreProductControllerTest {
 
     @Test
     void 입고가_없는_점포도_상품전체를_품절로_응답한다() throws Exception {
-        when(storeProductService.getStoreProducts(999L, StoreProductQuery.of(null)))
+        when(storeProductService.getStoreProducts(999L, StoreProductQuery.of(null), null, null))
                 .thenReturn(List.of(new StoreProductResponse(2L, "생수 500ml", "음료", 1000L,
                         null, 0, true, false, false, false, null)));
 
@@ -76,7 +76,7 @@ class StoreProductControllerTest {
 
     @Test
     void 검색어를_서비스에_넘기고_50자를_넘으면_400이다() throws Exception {
-        when(storeProductService.getStoreProducts(1L, StoreProductQuery.of("우유"))).thenReturn(List.of());
+        when(storeProductService.getStoreProducts(1L, StoreProductQuery.of("우유"), null, null)).thenReturn(List.of());
 
         mockMvc.perform(get("/stores/1/products").param("q", "우유"))
                 .andExpect(status().isOk())
@@ -88,7 +88,7 @@ class StoreProductControllerTest {
 
     @Test
     void 카테고리_정렬_추천_신상품_조건을_서비스에_그대로_넘긴다() throws Exception {
-        when(storeProductService.getStoreProducts(eq(1L), any())).thenReturn(List.of());
+        when(storeProductService.getStoreProducts(eq(1L), any(), any(), any())).thenReturn(List.of());
 
         mockMvc.perform(get("/stores/1/products")
                         .param("category", "유제품")
@@ -98,7 +98,17 @@ class StoreProductControllerTest {
                 .andExpect(status().isOk());
 
         verify(storeProductService).getStoreProducts(1L,
-                new StoreProductQuery(null, "유제품", StoreProductSort.POPULAR, true, true));
+                new StoreProductQuery(null, "유제품", StoreProductSort.POPULAR, true, true), null, null);
+    }
+
+    @Test
+    void page_size를_서비스에_그대로_넘긴다() throws Exception {
+        when(storeProductService.getStoreProducts(eq(1L), any(), any(), any())).thenReturn(List.of());
+
+        mockMvc.perform(get("/stores/1/products").param("page", "2").param("size", "10"))
+                .andExpect(status().isOk());
+
+        verify(storeProductService).getStoreProducts(1L, StoreProductQuery.of(null), 2, 10);
     }
 
     @Test

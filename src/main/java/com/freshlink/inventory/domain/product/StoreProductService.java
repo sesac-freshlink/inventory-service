@@ -43,6 +43,30 @@ public class StoreProductService {
         this.clock = clock;
     }
 
+    /** 무한 스크롤 한 묶음 최대 크기. 점주 재고 목록(S-10)과 같다 */
+    static final int MAX_PAGE_SIZE = 100;
+
+    /**
+     * 무한 스크롤용. 아래 목록을 거르고 정렬한 뒤 page번째 묶음(size개)만 돌려준다. page·size가 둘 다 없으면 전체다
+     * (시뮬레이터 등 지금 부르는 쪽이 그대로 쓴다). 한쪽만 오거나 범위를 벗어나면 400 INVALID_PAGE.
+     * 상품 수가 점포당 수십 개라 거르기·정렬은 지금처럼 한 번 하고 자르기만 한다
+     */
+    public List<StoreProductResponse> getStoreProducts(
+            Long storeId, StoreProductQuery query, Integer page, Integer size) {
+        if (page == null && size == null) {
+            return getStoreProducts(storeId, query);
+        }
+        if (page == null || size == null || page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw new BusinessException(InventoryErrorCode.INVALID_PAGE);
+        }
+        List<StoreProductResponse> all = getStoreProducts(storeId, query);
+        long from = (long) page * size;
+        if (from >= all.size()) {
+            return List.of();
+        }
+        return all.subList((int) from, (int) Math.min(from + size, all.size()));
+    }
+
     /**
      * 검색어·카테고리는 DB가 거르고, 추천·신상품 거르기와 추천순 정렬은 점포 단위로 읽은 값으로 한다.
      * 입고가 한 번도 없는 점포도 상품을 전부 품절로 내린다(명세 4장 U-10). 조회 표에 행이 없는 상품은 0이다
