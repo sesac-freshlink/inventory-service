@@ -91,33 +91,36 @@ public class StoreProductService {
         }
 
         return rows.map(row -> {
-            int availableQuantity = row.availableAt(now);
+            StoreProductStockView stock = StoreProductStockView.of(row, snapshot.isFirstCome(row.productId()), now);
             return new StoreProductResponse(
                     row.productId(),
                     row.name(),
                     row.category(),
                     row.price(),
                     row.imageUrl(),
-                    availableQuantity,
-                    availableQuantity == 0,
+                    stock.availableQuantity(),
+                    stock.soldOut(),
                     snapshot.isRecommended(row.productId()),
                     snapshot.isNew(row.productId()),
                     snapshot.isFirstCome(row.productId()),
-                    availableQuantity == 0 ? null : row.validUntil().atZone(SEOUL).toOffsetDateTime()
+                    stock.nearestExpiry(),
+                    stock.clearanceQuantity(),
+                    stock.clearancePrice(),
+                    stock.clearanceExpiry()
             );
         }).toList();
     }
 
     /**
-     * U-10 고객 상품 상세. 목록과 같은 조회 표 행을 읽는다. 먼저 받게 될 상품의 유통기한은 조회 표의 valid_until
-     * (남은 재고가 있는 미경과 lot 중 가장 빠른 기한, 예약은 FEFO)이고, 품절이면 보여 주지 않는다
+     * U-10 고객 상품 상세. 목록과 같은 조회 표 행·같은 계산(StoreProductStockView)이다. nearestExpiry는 기본 주문으로 먼저 받게 될
+     * 상품의 유통기한(24시간 밖 lot 중 가장 빠른 기한, 예약은 FEFO), 마감세일은 따로 clearance* 칸에 준다
      */
     public StoreProductDetailResponse getStoreProduct(Long storeId, Long productId) {
         LocalDateTime now = LocalDateTime.now(clock);
         StoreProductRow row = storeProductStockRepository.findStoreProduct(storeId, productId)
                 .orElseThrow(() -> new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND));
-        int availableQuantity = row.availableAt(now);
         StoreProductBadges.Snapshot snapshot = badges.load(storeId, now);
+        StoreProductStockView stock = StoreProductStockView.of(row, snapshot.isFirstCome(row.productId()), now);
 
         return new StoreProductDetailResponse(
                 row.productId(),
@@ -125,12 +128,15 @@ public class StoreProductService {
                 row.category(),
                 row.price(),
                 row.imageUrl(),
-                availableQuantity,
-                availableQuantity == 0,
-                availableQuantity == 0 ? null : row.validUntil().atZone(SEOUL).toOffsetDateTime(),
+                stock.availableQuantity(),
+                stock.soldOut(),
+                stock.nearestExpiry(),
                 snapshot.isRecommended(row.productId()),
                 snapshot.isNew(row.productId()),
-                snapshot.isFirstCome(row.productId())
+                snapshot.isFirstCome(row.productId()),
+                stock.clearanceQuantity(),
+                stock.clearancePrice(),
+                stock.clearanceExpiry()
         );
     }
 

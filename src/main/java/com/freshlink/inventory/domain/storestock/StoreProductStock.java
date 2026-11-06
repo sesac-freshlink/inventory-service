@@ -30,7 +30,22 @@ public class StoreProductStock {
     @Column(name = "available_quantity", nullable = false)
     private Integer availableQuantity;
 
-    /** 이 값이 맞는 마지막 시각. 남은 재고가 있는 미경과 lot 중 가장 빠른 유통기한. 남은 재고가 없으면 null */
+    /** 그중 24시간 안에 끝나는 lot의 몫(마감세일). 기본 몫 = available − clearance */
+    @Column(name = "clearance_quantity", nullable = false)
+    private Integer clearanceQuantity;
+
+    /** 24시간 밖 lot 중 남은 재고가 있는 가장 빠른 기한(기본 주문으로 먼저 받는 기한) */
+    @Column(name = "normal_expiry")
+    private LocalDateTime normalExpiry;
+
+    /** 24시간 안 lot 중 남은 재고가 있는 가장 빠른 기한(마감세일로 먼저 받는 기한) */
+    @Column(name = "clearance_expiry")
+    private LocalDateTime clearanceExpiry;
+
+    /**
+     * 이 값이 맞는 마지막 시각. 남은 재고가 있는 lot이 기한을 넘는 시각과 24시간 안으로 들어오는(마감세일로 넘어가는) 시각 중
+     * 가장 빠른 것. 남은 재고가 없으면 null
+     */
     @Column(name = "valid_until")
     private LocalDateTime validUntil;
 
@@ -74,6 +89,23 @@ public class StoreProductStock {
 
     public LocalDateTime getValidUntil() {
         return validUntil;
+    }
+
+    public Integer getClearanceQuantity() {
+        return clearanceQuantity;
+    }
+
+    public LocalDateTime getNormalExpiry() {
+        return normalExpiry;
+    }
+
+    public LocalDateTime getClearanceExpiry() {
+        return clearanceExpiry;
+    }
+
+    /** 그중 마감세일 몫. 값이 맞는 시각이 지났으면 0 */
+    public int clearanceAt(LocalDateTime now) {
+        return availableAt(clearanceQuantity, validUntil, now);
     }
 
     public LocalDateTime getUpdatedAt() {

@@ -28,6 +28,7 @@ import com.freshlink.common.message.result.ReserveFailedMessage;
 import com.freshlink.common.message.result.ReservedLot;
 import com.freshlink.common.message.result.ReservedMessage;
 import com.freshlink.common.outbox.OutboxWriter;
+import com.freshlink.inventory.domain.clearance.ClearancePolicy;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
 import com.freshlink.inventory.domain.disposal.Disposal;
 import com.freshlink.inventory.domain.disposal.DisposalRepository;
@@ -235,19 +236,23 @@ public class InventoryCommandService {
             return;
         }
 
-        // FEFO: 기한이 지나지 않은 lot만 유통기한 빠른 순으로 읽는다 (S-31)
+        // 선착순 상품이면 한도에서 남은 만큼만 잡을 수 있다. 넘으면 재고 부족과 같은 결과(OUT_OF_STOCK)로 거절한다
+        Integer firstComeLeft = firstComeService.limitLeft(message.storeId(), message.productId());
+        // FEFO: 기한이 지나지 않은 lot만 유통기한 빠른 순으로 읽는다 (S-31).
+        // 마감세일(ClearancePolicy): 24시간 안 lot은 마감세일로만 팔아서 기본 주문은 24시간 밖 lot에서만 잡는다.
+        // 선착순 상품은 마감세일이 없으므로 24시간 안 lot도 기본 예약 대상이다
+        LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime boundary = firstComeLeft != null ? now : ClearancePolicy.windowEnd(now);
         List<InventoryLot> lots = inventoryLotRepository
                 .findByStoreIdAndProductIdAndExpiryDateAfterOrderByExpiryDateAscIdAsc(
                         message.storeId(),
                         message.productId(),
-                        LocalDateTime.now(clock)
+                        boundary
                 );
 
         int availableQuantity = lots.stream()
                 .mapToInt(InventoryLot::availableQuantity)
                 .sum();
-        // 선착순 상품이면 한도에서 남은 만큼만 잡을 수 있다. 넘으면 재고 부족과 같은 결과(OUT_OF_STOCK)로 거절한다
-        Integer firstComeLeft = firstComeService.limitLeft(message.storeId(), message.productId());
         if (firstComeLeft != null && firstComeLeft < availableQuantity) {
             log.info(
                     "RESERVE 선착순 한도 적용: orderId={}, productId={}, available={}, limitLeft={}",

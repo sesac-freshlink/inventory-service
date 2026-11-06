@@ -18,6 +18,9 @@ public record StoreProductDetailResponse(
         OffsetDateTime nearestExpiry,
         boolean recommended,
         boolean newArrival,
-        boolean firstCome
+        boolean firstCome,
+        int clearanceQuantity,
+        Long clearancePrice,
+        OffsetDateTime clearanceExpiry
 ) {
 }

@@ -124,8 +124,8 @@ class StoreStockTest {
         DisposalResponse disposal = disposalService.request(storeId, "owner-4803", new DisposalRequest(imminentLot, 5));
         handle(DisposeMessage.of(disposal.disposalId(), storeId, imminentLot, 5, "owner-4803"));
         assertSame(storeId, productId, 10);
-        // 오늘까지 lot이 비었으므로 값이 맞는 시각은 다음 lot의 기한으로 넘어간다
-        assertThat(row(storeId, productId)).containsEntry("valid_until", LocalDateTime.of(2027, 12, 31, 23, 59, 59));
+        // 오늘까지 lot이 비었으므로 값이 맞는 시각은 다음 lot이 마감세일로 넘어가는 때(기한 24시간 전)다
+        assertThat(row(storeId, productId)).containsEntry("valid_until", LocalDateTime.of(2027, 12, 30, 23, 59, 59));
 
         adjustmentService.adjust(storeId, "owner-4803", new AdjustmentRequest(freshLot, -2, AdjustmentReason.LOSS, null));
         assertSame(storeId, productId, 8);
@@ -178,7 +178,7 @@ class StoreStockTest {
         assertThat(refreshed).isPositive();
         assertThat(row(storeId, productId))
                 .containsEntry("available_quantity", 20)
-                .containsEntry("valid_until", LocalDateTime.of(2027, 12, 31, 23, 59, 59));
+                .containsEntry("valid_until", LocalDateTime.of(2027, 12, 30, 23, 59, 59));
         assertThat(customerView(storeId, productId).availableQuantity()).isEqualTo(20);
     }
 
@@ -229,27 +229,29 @@ class StoreStockTest {
         long productId = insertProduct("P4810");
         handle(inbound(storeId, "P4810", 5, IMMINENT));
         handle(inbound(storeId, "P4810", 10, FRESH));
-        long freshLot = lotId(storeId, FRESH);
+        long imminentLot = lotId(storeId, IMMINENT);
 
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
             // 조정 트랜잭션이 먼저 lot 표를 한 번 읽는다 (읽기 기준 시점이 여기서 정해진다)
             jdbcTemplate.queryForObject("SELECT COUNT(*) FROM inventory_lot WHERE store_id = ?", Integer.class, storeId);
 
-            // 그 사이 다른 스레드의 쪽지 처리가 오늘까지 lot에서 2개를 예약하고 커밋한다 (FEFO라 기한 빠른 lot)
+            // 그 사이 다른 스레드의 쪽지 처리가 2027년까지 lot에서 2개를 예약하고 커밋한다 (기본 주문은 마감세일 lot을 건너뛴다)
             CompletableFuture.runAsync(() -> handle(reserve(4810_1L, storeId, productId, 2))).join();
 
-            // 조정은 다른 lot(2027년까지 lot)을 1개 줄인다. lot이 달라 낙관적 락 충돌은 없다
-            adjustmentService.adjust(storeId, "owner-4810", new AdjustmentRequest(freshLot, -1, AdjustmentReason.LOSS, null));
+            // 조정은 다른 lot(오늘까지 lot)을 1개 줄인다. lot이 달라 낙관적 락 충돌은 없다
+            adjustmentService.adjust(storeId, "owner-4810", new AdjustmentRequest(imminentLot, -1, AdjustmentReason.LOSS, null));
         });
 
-        // (10 − 1) + (5 − 2) = 12. 예약을 못 보고 합산했다면 (10 − 1) + 5 = 14
+        // (5 − 1) + (10 − 2) = 12. 예약을 못 보고 합산했다면 (5 − 1) + 10 = 14
         assertSame(storeId, productId, 12);
     }
 
     private void assertSame(long storeId, long productId, int expected) {
         assertThat(ownerView(storeId, productId).availableQuantity()).isEqualTo(expected);
         assertThat(row(storeId, productId)).containsEntry("available_quantity", expected);
-        assertThat(customerView(storeId, productId).availableQuantity()).isEqualTo(expected);
+        // 고객 목록은 기본 수량과 마감세일 수량을 나눠 준다(지금 12시는 판매 시간 안이라 둘의 합이 전체다)
+        StoreProductResponse customer = customerView(storeId, productId);
+        assertThat(customer.availableQuantity() + customer.clearanceQuantity()).isEqualTo(expected);
     }
 
     private void handle(BaseMessage message) {

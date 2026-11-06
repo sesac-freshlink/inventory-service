@@ -37,9 +37,9 @@ class StoreProductControllerTest {
                 .thenReturn(List.of(
                         new StoreProductResponse(15L, "매운 컵라면 115g", "라면", 1700L,
                                 "https://img.example/P015.jpg", 5, false, true, false, false,
-                                java.time.OffsetDateTime.parse("2026-10-21T23:59:59+09:00")),
+                                java.time.OffsetDateTime.parse("2026-10-21T23:59:59+09:00"), 0, null, null),
                         new StoreProductResponse(2L, "생수 500ml", "음료", 1000L,
-                                null, 0, true, false, true, true, null)
+                                null, 0, true, false, true, true, null, 0, null, null)
                 ));
 
         mockMvc.perform(get("/stores/1/products"))
@@ -64,7 +64,7 @@ class StoreProductControllerTest {
     void 입고가_없는_점포도_상품전체를_품절로_응답한다() throws Exception {
         when(storeProductService.getStoreProducts(999L, StoreProductQuery.of(null), null, null))
                 .thenReturn(List.of(new StoreProductResponse(2L, "생수 500ml", "음료", 1000L,
-                        null, 0, true, false, false, false, null)));
+                        null, 0, true, false, false, false, null, 0, null, null)));
 
         mockMvc.perform(get("/stores/999/products"))
                 .andExpect(status().isOk())
