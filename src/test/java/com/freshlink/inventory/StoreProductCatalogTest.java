@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static com.freshlink.inventory.FixedClockConfiguration.NOW;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasItem;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -179,6 +180,29 @@ class StoreProductCatalogTest {
         owner(get("/owner/inventory").param("size", "100"), "5407")
                 .andExpect(jsonPath("$.items[?(@.productId == " + never + ")]").isEmpty())
                 .andExpect(jsonPath("$.totalElements").value(2));
+    }
+
+    @Test
+    void page_size를_주면_거르고_정렬한_결과를_묶음으로_잘라_주고_범위를_벗어나면_400이다() throws Exception {
+        for (int i = 1; i <= 5; i++) {
+            product("P541" + (3 + i), "묶음 상품 " + i, "카탈묶음");
+            inbound(5409L, "P541" + (3 + i), 2);
+        }
+        String query = "?category=카탈묶음";
+
+        list("5409", query + "&page=0&size=2").andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].name").value(contains("묶음 상품 1", "묶음 상품 2")));
+        list("5409", query + "&page=2&size=2").andExpect(status().isOk())
+                .andExpect(jsonPath("$[*].name").value(contains("묶음 상품 5")));
+        list("5409", query + "&page=3&size=2").andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+        // 둘 다 없으면 지금처럼 전체
+        list("5409", query).andExpect(jsonPath("$.length()").value(5));
+
+        list("5409", query + "&page=0").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PAGE"));
+        list("5409", query + "&page=0&size=101").andExpect(status().isBadRequest());
+        list("5409", query + "&page=-1&size=2").andExpect(status().isBadRequest());
     }
 
     @Test
