@@ -39,6 +39,9 @@ public interface StoreProductStockRepository extends JpaRepository<StoreProductS
             """)
     Optional<StoreProductRow> findStoreProduct(@Param("storeId") Long storeId, @Param("productId") Long productId);
 
+    /** 주변 점포 재고: 상품 하나의 점포별 행. 지금 팔 수 있는지는 StoreProductStock.availableAt으로 본다 */
+    List<StoreProductStock> findByProductId(Long productId);
+
     /** 정리 작업용. 값이 맞는 시각이 지난 행 */
     List<StoreProductStock> findByValidUntilLessThanEqual(LocalDateTime now);
 
