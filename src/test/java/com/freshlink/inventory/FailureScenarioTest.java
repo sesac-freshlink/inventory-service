@@ -147,6 +147,7 @@ class FailureScenarioTest {
         long productId = insertProduct("P2306");
         long lotId = inbound(storeId, "P2306", 5, IMMINENT);
         DisposalResponse disposal = disposalService.request(storeId, "owner-sub-2306", new DisposalRequest(lotId, 5));
+        firstCome(storeId, productId);
         handle(reserve(2306L, storeId, productId, 1));
 
         handle(DisposeMessage.of(disposal.disposalId(), storeId, lotId, 5, "owner-sub-2306"));
@@ -222,6 +223,17 @@ class FailureScenarioTest {
 
     private static String newId() {
         return UUID.randomUUID().toString();
+    }
+
+    /**
+     * 기본 주문은 24시간 안(임박) lot을 건너뛴다(마감세일). 임박 lot이 예약으로 잡힌 상황을 만들려고 선착순 상품으로 둔다
+     * (선착순은 마감세일이 없어 임박 lot도 기본 예약에 들어간다)
+     */
+    private void firstCome(long storeId, long productId) {
+        jdbcTemplate.update("""
+                INSERT INTO first_come_sale (store_id, product_id, sale_limit, started_at, created_at, updated_at)
+                VALUES (?, ?, 100, ?, ?, ?)
+                """, storeId, productId, NOW.toLocalDateTime(), NOW.toLocalDateTime(), NOW.toLocalDateTime());
     }
 
     private long insertProduct(String productCode) {

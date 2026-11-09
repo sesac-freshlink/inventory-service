@@ -1,5 +1,6 @@
 package com.freshlink.inventory.domain.storestock;
 
+import com.freshlink.inventory.domain.clearance.ClearancePolicy;
 import com.freshlink.inventory.domain.inventory.InventoryLotRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,11 +26,22 @@ public class StockChangePublisher {
      * 수동 조정과 쪽지 처리가 같은 상품의 다른 lot을 동시에 바꾸면 서로의 변경을 못 보고 낡은 합계로 덮어쓴다.
      * 잠금 읽기는 상대가 커밋할 때까지 기다렸다 읽는다
      */
+    /**
+     * 마감세일(ClearancePolicy): 24시간 안에 끝나는 lot의 몫(clearance)과 기본·마감세일 각각 먼저 받는 기한도 같이 센다.
+     * 값이 맞는 시각(valid_until)은 lot이 기한을 넘는 시각과 lot이 24시간 안으로 들어오는 시각(기한 − 24시간) 중 빠른 쪽이다.
+     * 파라미터: 지금, 지금 + 24시간 순서로 반복된다(아래 publish 참고)
+     */
     private static final String SNAPSHOT_SQL = """
             SELECT COALESCE(SUM(CASE WHEN expiry_date > ? THEN quantity - reserved_quantity ELSE 0 END), 0)
                        AS available_quantity,
+                   COALESCE(SUM(CASE WHEN expiry_date > ? AND expiry_date <= ? THEN quantity - reserved_quantity ELSE 0 END), 0)
+                       AS clearance_quantity,
                    MIN(CASE WHEN expiry_date > ? AND quantity > reserved_quantity THEN expiry_date END)
-                       AS valid_until
+                       AS normal_expiry,
+                   MIN(CASE WHEN expiry_date > ? AND expiry_date <= ? AND quantity > reserved_quantity THEN expiry_date END)
+                       AS clearance_expiry,
+                   MIN(CASE WHEN expiry_date > ? AND quantity > reserved_quantity THEN expiry_date END)
+                       AS earliest_expiry
             FROM inventory_lot
             WHERE store_id = ? AND product_id = ?
             FOR SHARE
@@ -58,20 +70,40 @@ public class StockChangePublisher {
         // 저장소를 거쳐 flush 해야 낙관적 락 충돌이 스프링 예외(OptimisticLockingFailureException)로 바뀐다
         inventoryLotRepository.flush();
         LocalDateTime now = LocalDateTime.now(clock);
+        LocalDateTime windowEnd = ClearancePolicy.windowEnd(now);
 
         // 여러 상품을 늘 같은 순서(상품 ID 오름차순)로 읽어 서로 기다리는 일(교착)을 줄인다
         for (Long productId : new TreeSet<>(productIds)) {
             StockChanged changed = jdbcTemplate.queryForObject(
                     SNAPSHOT_SQL,
-                    (rs, rowNum) -> new StockChanged(
-                            storeId,
-                            productId,
-                            rs.getInt("available_quantity"),
-                            rs.getObject("valid_until", LocalDateTime.class)
-                    ),
-                    now, now, storeId, productId
+                    (rs, rowNum) -> {
+                        LocalDateTime normalExpiry = rs.getObject("normal_expiry", LocalDateTime.class);
+                        LocalDateTime earliest = rs.getObject("earliest_expiry", LocalDateTime.class);
+                        // 24시간 밖 lot은 (기한 − 24시간)에 마감세일로 넘어가므로 그때 값이 바뀐다
+                        LocalDateTime entersClearance = normalExpiry == null ? null : normalExpiry.minus(ClearancePolicy.WINDOW);
+                        return new StockChanged(
+                                storeId,
+                                productId,
+                                rs.getInt("available_quantity"),
+                                rs.getInt("clearance_quantity"),
+                                normalExpiry,
+                                rs.getObject("clearance_expiry", LocalDateTime.class),
+                                earlier(earliest, entersClearance)
+                        );
+                    },
+                    now, now, windowEnd, windowEnd, now, windowEnd, now, storeId, productId
             );
             events.publishEvent(changed);
         }
+    }
+
+    private static LocalDateTime earlier(LocalDateTime a, LocalDateTime b) {
+        if (a == null) {
+            return b;
+        }
+        if (b == null) {
+            return a;
+        }
+        return a.isBefore(b) ? a : b;
     }
 }

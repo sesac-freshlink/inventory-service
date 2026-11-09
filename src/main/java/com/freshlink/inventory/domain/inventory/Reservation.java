@@ -47,6 +47,10 @@ public class Reservation {
     @Column(nullable = false, length = 10)
     private ReservationStatus status;
 
+    /** 마감세일 lot에서 잡았으면 그때의 마감세일 단가(원), 기본 lot이면 null. 같은 RESERVED를 다시 보낼 때 처음과 같게 쓴다 */
+    @Column(name = "clearance_unit_price")
+    private Long clearanceUnitPrice;
+
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -64,6 +68,12 @@ public class Reservation {
         reservation.lotId = lotId;
         reservation.quantity = quantity;
         reservation.status = ReservationStatus.RESERVED;
+        return reservation;
+    }
+
+    public static Reservation reserveClearance(Long orderId, Long lotId, int quantity, long unitPrice) {
+        Reservation reservation = reserve(orderId, lotId, quantity);
+        reservation.clearanceUnitPrice = unitPrice;
         return reservation;
     }
 
@@ -102,6 +112,10 @@ public class Reservation {
 
     public Integer getQuantity() {
         return quantity;
+    }
+
+    public Long getClearanceUnitPrice() {
+        return clearanceUnitPrice;
     }
 
     public ReservationStatus getStatus() {

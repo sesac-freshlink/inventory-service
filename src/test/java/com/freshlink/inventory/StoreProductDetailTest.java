@@ -29,7 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * U-10 고객 상품 상세. 고객용 재고 조회 표에서 구매 가능 수량과, 먼저 받게 될 상품의 유통기한
- * (남은 재고가 있는 미경과 lot 중 가장 빠른 기한 = 조회 표의 valid_until, 예약은 FEFO)을 준다.
+ * (기본 주문이 받는 24시간 밖 lot 중 가장 빠른 기한, 예약은 FEFO)을 준다. 24시간 안 lot은 마감세일(clearance*)로 따로 준다.
  * 지금 시각은 2026-10-25 12:00 KST. 점포 5101~5199, 상품 P51xx, 주문 51xx를 쓴다.
  */
 @Import({TestcontainersConfiguration.class, FixedClockConfiguration.class})
@@ -69,14 +69,18 @@ class StoreProductDetailTest {
                 .andExpect(jsonPath("$.name").value("상세 흰 우유 500ml"))
                 .andExpect(jsonPath("$.category").value("테스트"))
                 .andExpect(jsonPath("$.price").value(1500))
-                .andExpect(jsonPath("$.availableQuantity").value(7))
+                // 오늘까지 lot(24시간 안)은 마감세일이라 기본 수량에서 빠진다
+                .andExpect(jsonPath("$.availableQuantity").value(5))
                 .andExpect(jsonPath("$.soldOut").value(false))
-                // 예약은 기한 빠른 것부터(FEFO)라 오늘까지 lot을 먼저 받는다
-                .andExpect(jsonPath("$.nearestExpiry").value("2026-10-25T23:59:59+09:00"));
+                .andExpect(jsonPath("$.nearestExpiry").value("2027-12-31T23:59:59+09:00"))
+                // 지금 12시는 판매 시간(06~23시) 안. 30% 할인, 10원 아래 버림
+                .andExpect(jsonPath("$.clearanceQuantity").value(2))
+                .andExpect(jsonPath("$.clearancePrice").value(1050))
+                .andExpect(jsonPath("$.clearanceExpiry").value("2026-10-25T23:59:59+09:00"));
     }
 
     @Test
-    void 기한_빠른_lot이_예약으로_다_잡혔으면_그다음_lot의_기한을_준다() throws Exception {
+    void 기본_주문은_마감세일_lot을_건너뛰고_24시간_밖_lot에서_잡는다() throws Exception {
         long storeId = 5102L;
         long productId = product("P5102", "상세 예약된 라면");
         handle(inbound(storeId, "P5102", 2, TONIGHT));
@@ -84,8 +88,9 @@ class StoreProductDetailTest {
         handle(new ReserveMessage(newId(), NOW, 5101L, storeId, productId, 2));
 
         detail(storeId, productId)
-                .andExpect(jsonPath("$.availableQuantity").value(5))
-                .andExpect(jsonPath("$.nearestExpiry").value("2027-12-31T23:59:59+09:00"));
+                .andExpect(jsonPath("$.availableQuantity").value(3))
+                .andExpect(jsonPath("$.nearestExpiry").value("2027-12-31T23:59:59+09:00"))
+                .andExpect(jsonPath("$.clearanceQuantity").value(2));
     }
 
     @Test
