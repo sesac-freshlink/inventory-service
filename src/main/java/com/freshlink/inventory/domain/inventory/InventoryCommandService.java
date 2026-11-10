@@ -28,6 +28,7 @@ import com.freshlink.common.message.result.ReserveFailedMessage;
 import com.freshlink.common.message.result.ReservedLot;
 import com.freshlink.common.message.result.ReservedMessage;
 import com.freshlink.common.outbox.OutboxWriter;
+import com.freshlink.inventory.domain.clearance.ClearancePolicy;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
 import com.freshlink.inventory.domain.disposal.Disposal;
 import com.freshlink.inventory.domain.disposal.DisposalRepository;
@@ -235,19 +236,51 @@ public class InventoryCommandService {
             return;
         }
 
-        // FEFO: 기한이 지나지 않은 lot만 유통기한 빠른 순으로 읽는다 (S-31)
+        int clearanceQuantity = message.clearanceQuantity();
+        if (clearanceQuantity < 0 || clearanceQuantity > message.quantity()) {
+            log.warn(
+                    "RESERVE 마감세일 수량 검증 실패: orderId={}, quantity={}, clearanceQuantity={}",
+                    message.orderId(),
+                    message.quantity(),
+                    clearanceQuantity
+            );
+            saveReserveFailed(message, ReserveFailReason.INVALID_QUANTITY, 0);
+            return;
+        }
+
+        // 선착순 상품이면 한도에서 남은 만큼만 잡을 수 있다. 넘으면 재고 부족과 같은 결과(OUT_OF_STOCK)로 거절한다
+        Integer firstComeLeft = firstComeService.limitLeft(message.storeId(), message.productId());
+        if (firstComeLeft != null && clearanceQuantity > 0) {
+            log.warn(
+                    "RESERVE 선착순 상품에 마감세일 요청: orderId={}, productId={}, clearanceQuantity={}",
+                    message.orderId(),
+                    message.productId(),
+                    clearanceQuantity
+            );
+            saveReserveFailed(message, ReserveFailReason.INVALID_QUANTITY, 0);
+            return;
+        }
+
+        // FEFO: 기한이 지나지 않은 lot만 유통기한 빠른 순으로 읽는다 (S-31).
+        // 마감세일(ClearancePolicy): 24시간 안 lot은 마감세일로만 팔아서 기본 주문은 24시간 밖 lot에서만 잡는다.
+        // 선착순 상품은 마감세일이 없으므로 24시간 안 lot도 기본 예약 대상이다
+        LocalDateTime now = LocalDateTime.now(clock);
         List<InventoryLot> lots = inventoryLotRepository
                 .findByStoreIdAndProductIdAndExpiryDateAfterOrderByExpiryDateAscIdAsc(
                         message.storeId(),
                         message.productId(),
-                        LocalDateTime.now(clock)
+                        now
                 );
+        List<InventoryLot> clearanceLots = firstComeLeft != null
+                ? List.of()
+                : lots.stream().filter(lot -> ClearancePolicy.isClearanceLot(lot.getExpiryDate(), now)).toList();
+        List<InventoryLot> regularLots = firstComeLeft != null
+                ? lots
+                : lots.stream().filter(lot -> !ClearancePolicy.isClearanceLot(lot.getExpiryDate(), now)).toList();
 
-        int availableQuantity = lots.stream()
-                .mapToInt(InventoryLot::availableQuantity)
-                .sum();
-        // 선착순 상품이면 한도에서 남은 만큼만 잡을 수 있다. 넘으면 재고 부족과 같은 결과(OUT_OF_STOCK)로 거절한다
-        Integer firstComeLeft = firstComeService.limitLeft(message.storeId(), message.productId());
+        // 판매 시간 밖이면 마감세일 재고는 없는 것으로 본다
+        int clearanceAvailable = ClearancePolicy.inSaleHours(now) ? sumAvailable(clearanceLots) : 0;
+        int availableQuantity = sumAvailable(regularLots);
         if (firstComeLeft != null && firstComeLeft < availableQuantity) {
             log.info(
                     "RESERVE 선착순 한도 적용: orderId={}, productId={}, available={}, limitLeft={}",
@@ -258,41 +291,35 @@ public class InventoryCommandService {
             );
             availableQuantity = firstComeLeft;
         }
-        if (availableQuantity < message.quantity()) {
+        // 마감세일을 요청한 주문의 실패에만 마감세일 남은 수량을 넣는다. 둘 다 모자라면 마감세일 품절을 먼저 알린다
+        Integer clearanceLeft = clearanceQuantity > 0 ? clearanceAvailable : null;
+        if (clearanceAvailable < clearanceQuantity) {
+            log.info(
+                    "RESERVE 마감세일 부족: orderId={}, productId={}, clearanceQuantity={}, clearanceAvailable={}",
+                    message.orderId(),
+                    message.productId(),
+                    clearanceQuantity,
+                    clearanceAvailable
+            );
+            saveReserveFailed(message, ReserveFailReason.CLEARANCE_SOLD_OUT, availableQuantity, clearanceLeft);
+            return;
+        }
+        if (availableQuantity < message.regularQuantity()) {
             log.info(
                     "RESERVE 재고 부족: orderId={}, productId={}, quantity={}, available={}",
                     message.orderId(),
                     message.productId(),
-                    message.quantity(),
+                    message.regularQuantity(),
                     availableQuantity
             );
-            saveReserveFailed(message, ReserveFailReason.OUT_OF_STOCK, availableQuantity);
+            saveReserveFailed(message, ReserveFailReason.OUT_OF_STOCK, availableQuantity, clearanceLeft);
             return;
         }
 
-        int remaining = message.quantity();
         List<ReservedLot> reservedLots = new ArrayList<>();
-        for (InventoryLot lot : lots) {
-            if (remaining == 0) {
-                break;
-            }
-            int quantity = Math.min(remaining, lot.availableQuantity());
-            if (quantity == 0) {
-                continue;
-            }
-            lot.reserve(quantity);
-            reservationRepository.save(Reservation.reserve(
-                    message.orderId(),
-                    lot.getId(),
-                    quantity
-            ));
-            reservedLots.add(new ReservedLot(
-                    lot.getId(),
-                    quantity,
-                    toOffsetDateTime(lot.getExpiryDate())
-            ));
-            remaining -= quantity;
-        }
+        reserveLots(message.orderId(), clearanceLots, clearanceQuantity,
+                ClearancePolicy.price(product.getPrice()), reservedLots);
+        reserveLots(message.orderId(), regularLots, message.regularQuantity(), null, reservedLots);
         stockChanges.publish(message.storeId(), List.of(message.productId()));
 
         outboxWriter.save(resultsQueue, ReservedMessage.of(
@@ -312,6 +339,42 @@ public class InventoryCommandService {
                 message.quantity(),
                 reservedLots.size()
         );
+    }
+
+    private static int sumAvailable(List<InventoryLot> lots) {
+        return lots.stream().mapToInt(InventoryLot::availableQuantity).sum();
+    }
+
+    /** lot을 앞에서부터(FEFO) 잡는다. clearanceUnitPrice가 있으면 마감세일로, null이면 기본으로 잡는다 */
+    private void reserveLots(
+            Long orderId,
+            List<InventoryLot> lots,
+            int quantityToReserve,
+            Long clearanceUnitPrice,
+            List<ReservedLot> reservedLots
+    ) {
+        int remaining = quantityToReserve;
+        for (InventoryLot lot : lots) {
+            if (remaining == 0) {
+                break;
+            }
+            int quantity = Math.min(remaining, lot.availableQuantity());
+            if (quantity == 0) {
+                continue;
+            }
+            lot.reserve(quantity);
+            reservationRepository.save(clearanceUnitPrice == null
+                    ? Reservation.reserve(orderId, lot.getId(), quantity)
+                    : Reservation.reserveClearance(orderId, lot.getId(), quantity, clearanceUnitPrice));
+            reservedLots.add(toReservedLot(lot.getId(), quantity, lot.getExpiryDate(), clearanceUnitPrice));
+            remaining -= quantity;
+        }
+    }
+
+    private ReservedLot toReservedLot(Long lotId, int quantity, LocalDateTime expiryDate, Long clearanceUnitPrice) {
+        return clearanceUnitPrice == null
+                ? new ReservedLot(lotId, quantity, toOffsetDateTime(expiryDate))
+                : ReservedLot.clearance(lotId, quantity, toOffsetDateTime(expiryDate), clearanceUnitPrice);
     }
 
     /** 같은 orderId가 다른 messageId로 다시 오면 이미 잡은 예약으로 같은 RESERVED를 다시 보낸다 (명세 5-3 1번) */
@@ -338,10 +401,11 @@ public class InventoryCommandService {
                 .orElseThrow(() -> new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND));
 
         List<ReservedLot> reservedLots = reservations.stream()
-                .map(reservation -> new ReservedLot(
+                .map(reservation -> toReservedLot(
                         reservation.getLotId(),
                         reservation.getQuantity(),
-                        toOffsetDateTime(lotsById.get(reservation.getLotId()).getExpiryDate())
+                        lotsById.get(reservation.getLotId()).getExpiryDate(),
+                        reservation.getClearanceUnitPrice()
                 ))
                 .toList();
 
@@ -628,12 +692,22 @@ public class InventoryCommandService {
             ReserveFailReason reason,
             int availableQuantity
     ) {
+        saveReserveFailed(message, reason, availableQuantity, null);
+    }
+
+    private void saveReserveFailed(
+            ReserveMessage message,
+            ReserveFailReason reason,
+            int availableQuantity,
+            Integer clearanceAvailableQuantity
+    ) {
         outboxWriter.save(resultsQueue, ReserveFailedMessage.of(
                 message.orderId(),
                 message.storeId(),
                 message.productId(),
                 reason,
-                availableQuantity
+                availableQuantity,
+                clearanceAvailableQuantity
         ));
     }
 

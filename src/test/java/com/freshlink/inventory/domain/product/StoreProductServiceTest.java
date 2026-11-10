@@ -56,10 +56,10 @@ class StoreProductServiceTest {
     void 고객_상품목록은_조회표_JOIN_결과를_그대로_쓰고_값이_맞는_시각이_지났거나_행이_없으면_품절이다() {
         noBadges();
         when(storeProductStockRepository.findStoreProducts(1L, null, null)).thenReturn(List.of(
-                new StoreProductRow(8L, "감자칩", "과자", 1500L, null, null, null),
+                new StoreProductRow(8L, "감자칩", "과자", 1500L, null, null, null, 0, null, null),
                 new StoreProductRow(15L, "매운 컵라면 115g", "라면", 1700L, "https://img.example/P015.jpg",
-                        5, NOW.plusHours(1)),
-                new StoreProductRow(2L, "생수 500ml", "음료", 1000L, null, 3, NOW)
+                        5, NOW.plusHours(1), 0, null, null),
+                new StoreProductRow(2L, "생수 500ml", "음료", 1000L, null, 3, NOW, 0, null, null)
         ));
 
         List<StoreProductResponse> result = service.getStoreProducts(1L, StoreProductQuery.of(null));
@@ -94,10 +94,10 @@ class StoreProductServiceTest {
         when(badges.load(any(), any())).thenReturn(new StoreProductBadges.Snapshot(
                 Set.of(), Map.of(), Map.of(1L, 2, 3L, 5), Set.of(), NOW));
         when(storeProductStockRepository.findStoreProducts(1L, null, null)).thenReturn(List.of(
-                new StoreProductRow(1L, "가", "c", 1L, null, 1, NOW.plusDays(1)),
-                new StoreProductRow(2L, "나", "c", 1L, null, 1, NOW.plusDays(1)),
-                new StoreProductRow(3L, "다", "c", 1L, null, 1, NOW.plusDays(1)),
-                new StoreProductRow(4L, "라", "c", 1L, null, 1, NOW.plusDays(1))
+                new StoreProductRow(1L, "가", "c", 1L, null, 1, NOW.plusDays(1), 0, null, null),
+                new StoreProductRow(2L, "나", "c", 1L, null, 1, NOW.plusDays(1), 0, null, null),
+                new StoreProductRow(3L, "다", "c", 1L, null, 1, NOW.plusDays(1), 0, null, null),
+                new StoreProductRow(4L, "라", "c", 1L, null, 1, NOW.plusDays(1), 0, null, null)
         ));
 
         List<StoreProductResponse> result = service.getStoreProducts(
@@ -115,9 +115,9 @@ class StoreProductServiceTest {
                 Set.of(),
                 NOW));
         List<StoreProductRow> rows = List.of(
-                new StoreProductRow(1L, "가", "c", 1L, null, 1, NOW.plusDays(1)),
-                new StoreProductRow(2L, "나", "c", 1L, null, 1, NOW.plusDays(1)),
-                new StoreProductRow(3L, "다", "c", 1L, null, 1, NOW.plusDays(1))
+                new StoreProductRow(1L, "가", "c", 1L, null, 1, NOW.plusDays(1), 0, null, null),
+                new StoreProductRow(2L, "나", "c", 1L, null, 1, NOW.plusDays(1), 0, null, null),
+                new StoreProductRow(3L, "다", "c", 1L, null, 1, NOW.plusDays(1), 0, null, null)
         );
         when(storeProductStockRepository.findStoreProducts(1L, null, null)).thenReturn(rows);
 

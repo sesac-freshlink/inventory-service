@@ -11,6 +11,9 @@ public record StockChanged(
         Long storeId,
         Long productId,
         int availableQuantity,
+        int clearanceQuantity,
+        LocalDateTime normalExpiry,
+        LocalDateTime clearanceExpiry,
         LocalDateTime validUntil
 ) {
 }

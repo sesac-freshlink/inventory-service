@@ -13,11 +13,19 @@ public record StoreProductRow(
         Long price,
         String imageUrl,
         Integer availableQuantity,
-        LocalDateTime validUntil
+        LocalDateTime validUntil,
+        Integer clearanceQuantity,
+        LocalDateTime normalExpiry,
+        LocalDateTime clearanceExpiry
 ) {
 
     /** 지금 고객에게 보여 줄 구매 가능 수량. 규칙은 StoreProductStock.availableAt과 같다 */
     public int availableAt(LocalDateTime now) {
         return StoreProductStock.availableAt(availableQuantity, validUntil, now);
+    }
+
+    /** 그중 마감세일 몫(24시간 안에 끝나는 lot). 값이 맞는 시각이 지났으면 0 */
+    public int clearanceAt(LocalDateTime now) {
+        return StoreProductStock.availableAt(clearanceQuantity, validUntil, now);
     }
 }

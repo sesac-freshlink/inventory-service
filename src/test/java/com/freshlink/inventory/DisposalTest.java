@@ -146,6 +146,7 @@ class DisposalTest {
     @Test
     void quantityOverDisposableIs400InvalidQuantity() throws Exception {
         long lotId = lotOf(1707L, "P1707", 5, IMMINENT);
+        firstCome(1707L, productId("P1707"));
         handle(reserve(1707L, 1707L, productId("P1707"), 2));
 
         requestDisposal("1707", lotId, 4)
@@ -183,6 +184,7 @@ class DisposalTest {
     void disposeIsSkippedWhenReservationTookStockBeforeProcessing() throws Exception {
         long lotId = lotOf(1709L, "P1709", 5, IMMINENT);
         long disposalId = acceptedDisposalId("1709", lotId, 5);
+        firstCome(1709L, productId("P1709"));
         handle(reserve(1709L, 1709L, productId("P1709"), 2));
 
         handle(disposeMessage(disposalId));
@@ -212,6 +214,7 @@ class DisposalTest {
     void ledgerSumEqualsLotQuantityAfterInboundSaleAndDispose() throws Exception {
         long storeId = 1711L;
         long lotId = lotOf(storeId, "P1711", 10, IMMINENT);
+        firstCome(storeId, productId("P1711"));
         handle(reserve(1711L, storeId, productId("P1711"), 1));
         handle(new ConfirmMessage(UUID.randomUUID().toString(), NOW, 1711L, storeId));
         long disposalId = acceptedDisposalId(String.valueOf(storeId), lotId, 3);
@@ -259,6 +262,17 @@ class DisposalTest {
     private long productId(String productCode) {
         return jdbcTemplate.queryForObject(
                 "SELECT id FROM product WHERE product_code = ?", Long.class, productCode);
+    }
+
+    /**
+     * 기본 주문은 24시간 안(임박) lot을 건너뛴다(마감세일). 임박 lot이 예약으로 잡힌 상황을 만들려고 선착순 상품으로 둔다
+     * (선착순은 마감세일이 없어 임박 lot도 기본 예약에 들어간다)
+     */
+    private void firstCome(long storeId, long productId) {
+        jdbcTemplate.update("""
+                INSERT INTO first_come_sale (store_id, product_id, sale_limit, started_at, created_at, updated_at)
+                VALUES (?, ?, 100, ?, ?, ?)
+                """, storeId, productId, NOW.toLocalDateTime(), NOW.toLocalDateTime(), NOW.toLocalDateTime());
     }
 
     private ReserveMessage reserve(long orderId, long storeId, long productId, int quantity) {

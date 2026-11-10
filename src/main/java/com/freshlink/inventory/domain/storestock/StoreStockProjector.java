@@ -27,6 +27,9 @@ public class StoreStockProjector {
                 event.storeId(),
                 event.productId(),
                 event.availableQuantity(),
+                event.clearanceQuantity(),
+                event.normalExpiry(),
+                event.clearanceExpiry(),
                 event.validUntil(),
                 LocalDateTime.now(clock)
         );

@@ -17,7 +17,8 @@ public interface StoreProductStockRepository extends JpaRepository<StoreProductS
      */
     @Query("""
             SELECT new com.freshlink.inventory.domain.storestock.StoreProductRow(
-                p.id, p.name, p.category, p.price, p.imageUrl, s.availableQuantity, s.validUntil
+                p.id, p.name, p.category, p.price, p.imageUrl, s.availableQuantity, s.validUntil,
+                s.clearanceQuantity, s.normalExpiry, s.clearanceExpiry
             )
             FROM Product p
             LEFT JOIN StoreProductStock s ON s.productId = p.id AND s.storeId = :storeId
@@ -31,7 +32,8 @@ public interface StoreProductStockRepository extends JpaRepository<StoreProductS
     /** U-10 고객 상품 상세. 목록과 같은 JOIN에서 상품 하나. 상품이 없으면 빈 값 */
     @Query("""
             SELECT new com.freshlink.inventory.domain.storestock.StoreProductRow(
-                p.id, p.name, p.category, p.price, p.imageUrl, s.availableQuantity, s.validUntil
+                p.id, p.name, p.category, p.price, p.imageUrl, s.availableQuantity, s.validUntil,
+                s.clearanceQuantity, s.normalExpiry, s.clearanceExpiry
             )
             FROM Product p
             LEFT JOIN StoreProductStock s ON s.productId = p.id AND s.storeId = :storeId
@@ -39,15 +41,23 @@ public interface StoreProductStockRepository extends JpaRepository<StoreProductS
             """)
     Optional<StoreProductRow> findStoreProduct(@Param("storeId") Long storeId, @Param("productId") Long productId);
 
+    /** 주변 점포 재고: 상품 하나의 점포별 행. 지금 팔 수 있는지는 StoreProductStock.availableAt으로 본다 */
+    List<StoreProductStock> findByProductId(Long productId);
+
     /** 정리 작업용. 값이 맞는 시각이 지난 행 */
     List<StoreProductStock> findByValidUntilLessThanEqual(LocalDateTime now);
 
     /** 있으면 바꾸고 없으면 넣는다. 안전재고(S-40)와 같은 이유로 한 문장으로 한다 */
     @Modifying
     @Query(value = """
-            INSERT INTO store_product_stock (store_id, product_id, available_quantity, valid_until, updated_at)
-            VALUES (:storeId, :productId, :availableQuantity, :validUntil, :now) AS new
+            INSERT INTO store_product_stock (store_id, product_id, available_quantity, clearance_quantity,
+                                             normal_expiry, clearance_expiry, valid_until, updated_at)
+            VALUES (:storeId, :productId, :availableQuantity, :clearanceQuantity,
+                    :normalExpiry, :clearanceExpiry, :validUntil, :now) AS new
             ON DUPLICATE KEY UPDATE available_quantity = new.available_quantity,
+                                    clearance_quantity = new.clearance_quantity,
+                                    normal_expiry = new.normal_expiry,
+                                    clearance_expiry = new.clearance_expiry,
                                     valid_until = new.valid_until,
                                     updated_at = new.updated_at
             """, nativeQuery = true)
@@ -55,6 +65,9 @@ public interface StoreProductStockRepository extends JpaRepository<StoreProductS
             @Param("storeId") Long storeId,
             @Param("productId") Long productId,
             @Param("availableQuantity") int availableQuantity,
+            @Param("clearanceQuantity") int clearanceQuantity,
+            @Param("normalExpiry") LocalDateTime normalExpiry,
+            @Param("clearanceExpiry") LocalDateTime clearanceExpiry,
             @Param("validUntil") LocalDateTime validUntil,
             @Param("now") LocalDateTime now
     );
