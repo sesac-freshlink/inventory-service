@@ -102,6 +102,21 @@ class StoreProductControllerTest {
     }
 
     @Test
+    void 마감세일만_선착순만_조건을_서비스에_그대로_넘긴다() throws Exception {
+        when(storeProductService.getStoreProducts(eq(1L), any(), any(), any())).thenReturn(List.of());
+
+        mockMvc.perform(get("/stores/1/products")
+                        .param("clearance", "true")
+                        .param("firstCome", "true")
+                        .param("page", "0")
+                        .param("size", "20"))
+                .andExpect(status().isOk());
+
+        verify(storeProductService).getStoreProducts(1L,
+                new StoreProductQuery(null, null, null, false, false, true, true), 0, 20);
+    }
+
+    @Test
     void page_size를_서비스에_그대로_넘긴다() throws Exception {
         when(storeProductService.getStoreProducts(eq(1L), any(), any(), any())).thenReturn(List.of());
 

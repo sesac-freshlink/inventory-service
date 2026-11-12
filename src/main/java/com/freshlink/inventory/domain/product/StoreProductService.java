@@ -68,7 +68,7 @@ public class StoreProductService {
     }
 
     /**
-     * 검색어·카테고리는 DB가 거르고, 추천·신상품 거르기와 추천순 정렬은 점포 단위로 읽은 값으로 한다.
+     * 검색어·카테고리는 DB가 거르고, 추천·신상품·마감세일·선착순 거르기와 추천순 정렬은 점포 단위로 읽은 값으로 한다.
      * 입고가 한 번도 없는 점포도 상품을 전부 품절로 내린다(명세 4장 U-10). 조회 표에 행이 없는 상품은 0이다
      */
     public List<StoreProductResponse> getStoreProducts(Long storeId, StoreProductQuery query) {
@@ -83,6 +83,14 @@ public class StoreProductService {
         }
         if (query.newOnly()) {
             rows = rows.filter(row -> snapshot.isNew(row.productId()));
+        }
+        if (query.firstComeOnly()) {
+            rows = rows.filter(row -> snapshot.isFirstCome(row.productId()));
+        }
+        if (query.clearanceOnly()) {
+            // 응답의 clearanceQuantity와 같은 계산이라 판매 시간(06~23시) 밖·선착순 상품은 빠진다
+            rows = rows.filter(row -> StoreProductStockView.of(
+                    row, snapshot.isFirstCome(row.productId()), now).clearanceQuantity() > 0);
         }
         if (query.sort() == StoreProductSort.POPULAR) {
             // 쿼리가 이미 상품명 순이라 안정 정렬이면 판매 수가 같을 때 상품명 순이 유지된다
