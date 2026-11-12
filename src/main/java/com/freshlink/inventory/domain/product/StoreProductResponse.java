@@ -10,7 +10,8 @@ import io.swagger.v3.oas.annotations.media.Schema;
         + "availableQuantity는 기본 주문으로 살 수 있는 수량(24시간 안 lot은 마감세일로만 판다, 선착순 상품은 예외), "
         + "nearestExpiry는 기본 주문으로 먼저 받게 될 상품의 유통기한(없으면 null). "
         + "clearanceQuantity·clearancePrice·clearanceExpiry는 마감세일(24시간 안 lot, 30% 할인 10원 내림, 06~23시) 수량·단가·기한, "
-        + "마감세일이 없으면 0·null·null. soldOut은 기본·마감세일 둘 다 0일 때")
+        + "마감세일이 없으면 0·null·null. soldOut은 기본·마감세일 둘 다 0일 때. "
+        + "soldRecently는 이 점포의 최근 7일 순판매 수량(판매 − 환불 복원, 0 아래면 0). 추천순(sort=POPULAR)과 같은 값")
 public record StoreProductResponse(
         Long productId,
         String name,
@@ -25,6 +26,7 @@ public record StoreProductResponse(
         OffsetDateTime nearestExpiry,
         int clearanceQuantity,
         Long clearancePrice,
-        OffsetDateTime clearanceExpiry
+        OffsetDateTime clearanceExpiry,
+        int soldRecently
 ) {
 }

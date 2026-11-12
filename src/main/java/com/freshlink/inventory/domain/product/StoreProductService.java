@@ -114,7 +114,8 @@ public class StoreProductService {
                     stock.nearestExpiry(),
                     stock.clearanceQuantity(),
                     stock.clearancePrice(),
-                    stock.clearanceExpiry()
+                    stock.clearanceExpiry(),
+                    snapshot.soldRecently(row.productId())
             );
         }).toList();
     }
