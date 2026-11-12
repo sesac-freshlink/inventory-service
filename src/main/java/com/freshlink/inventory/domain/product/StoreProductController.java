@@ -34,7 +34,8 @@ public class StoreProductController {
 
     @Operation(summary = "U-10 고객용 점포 상품 목록 (공개). q = 상품명 검색(50자까지), category = 카테고리, "
             + "sort = NAME(기본, 상품명 순)·POPULAR(추천순, 최근 7일 순판매 많은 순), "
-            + "recommended=true = 점주 추천상품만, newOnly=true = 신상품(첫 입고 7일 안)만. 모두 선택. "
+            + "recommended=true = 점주 추천상품만, newOnly=true = 신상품(첫 입고 7일 안)만, "
+            + "clearance=true = 지금 마감세일로 살 수 있는 상품만(06~23시, 선착순 상품 제외), firstCome=true = 선착순 상품만. 모두 선택. "
             + "page(0부터)·size(1~100)를 주면 거르고 정렬한 결과에서 그 묶음만 준다(무한 스크롤). "
             + "응답은 항상 배열이고, 받은 개수가 size보다 적으면 마지막 묶음이다. 둘 다 없으면 전체")
     @GetMapping
@@ -45,13 +46,16 @@ public class StoreProductController {
             @RequestParam(required = false) StoreProductSort sort,
             @RequestParam(defaultValue = "false") boolean recommended,
             @RequestParam(defaultValue = "false") boolean newOnly,
+            @RequestParam(defaultValue = "false") boolean clearance,
+            @RequestParam(defaultValue = "false") boolean firstCome,
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size
     ) {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(storeProductService.getStoreProducts(
-                        storeId, new StoreProductQuery(q, category, sort, recommended, newOnly), page, size));
+                        storeId, new StoreProductQuery(q, category, sort, recommended, newOnly, clearance, firstCome),
+                        page, size));
     }
 
     @Operation(summary = "U-10 카테고리 목록 (공개). 상품 전체의 카테고리, 가나다순")

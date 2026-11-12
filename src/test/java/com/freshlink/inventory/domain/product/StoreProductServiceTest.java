@@ -132,4 +132,51 @@ class StoreProductServiceTest {
                 .filteredOn(p -> p.productId() == 3L)
                 .extracting(StoreProductResponse::newArrival).containsExactly(false);
     }
+
+    /** 1: 마감세일 2개, 2: 24시간 안 lot 없음, 3: 24시간 안 lot이 있지만 선착순이라 마감세일이 아니다 */
+    private List<StoreProductRow> clearanceRows(LocalDateTime now) {
+        return List.of(
+                new StoreProductRow(1L, "가", "c", 1000L, null, 5, now.plusHours(1), 2, now.plusDays(2), now.plusHours(8)),
+                new StoreProductRow(2L, "나", "c", 1000L, null, 5, now.plusHours(1), 0, now.plusDays(2), null),
+                new StoreProductRow(3L, "다", "c", 1000L, null, 5, now.plusHours(1), 2, now.plusDays(2), now.plusHours(8))
+        );
+    }
+
+    @Test
+    void 마감세일만은_지금_마감세일로_살_수_있는_상품만이고_선착순만은_선착순을_켠_상품만이다() {
+        when(badges.load(any(), any())).thenReturn(new StoreProductBadges.Snapshot(
+                Set.of(), Map.of(), Map.of(), Set.of(3L), NOW));
+        when(storeProductStockRepository.findStoreProducts(1L, null, null)).thenReturn(clearanceRows(NOW));
+
+        assertThat(service.getStoreProducts(1L, new StoreProductQuery(null, null, null, false, false, true, false)))
+                .extracting(StoreProductResponse::productId, StoreProductResponse::clearanceQuantity)
+                .containsExactly(tuple(1L, 2));
+        assertThat(service.getStoreProducts(1L, new StoreProductQuery(null, null, null, false, false, false, true)))
+                .extracting(StoreProductResponse::productId, StoreProductResponse::firstCome)
+                .containsExactly(tuple(3L, true));
+        // 둘 다 켜면 선착순 상품은 마감세일이 없으므로 비어 있다
+        assertThat(service.getStoreProducts(1L, new StoreProductQuery(null, null, null, false, false, true, true)))
+                .isEmpty();
+    }
+
+    @Test
+    void 마감세일만은_판매_시간_밖이면_비어_있고_page_size는_거른_뒤에_자른다() {
+        // 2026-10-20 23:30 KST: 마감세일 판매 시간(06~23시) 밖
+        LocalDateTime night = LocalDateTime.of(2026, 10, 20, 23, 30);
+        StoreProductService nightService = new StoreProductService(storeProductStockRepository, productRepository,
+                badges, Clock.fixed(Instant.parse("2026-10-20T14:30:00Z"), SEOUL));
+        when(badges.load(any(), any())).thenReturn(new StoreProductBadges.Snapshot(
+                Set.of(), Map.of(), Map.of(), Set.of(), night));
+        when(storeProductStockRepository.findStoreProducts(1L, null, null)).thenReturn(clearanceRows(night));
+
+        assertThat(nightService.getStoreProducts(1L, new StoreProductQuery(null, null, null, false, false, true, false)))
+                .isEmpty();
+
+        // 낮에는 거른 결과(1·3번)에서 첫 묶음 1개만
+        when(badges.load(any(), any())).thenReturn(new StoreProductBadges.Snapshot(
+                Set.of(), Map.of(), Map.of(), Set.of(), NOW));
+        when(storeProductStockRepository.findStoreProducts(1L, null, null)).thenReturn(clearanceRows(NOW));
+        assertThat(service.getStoreProducts(1L, new StoreProductQuery(null, null, null, false, false, true, false), 1, 1))
+                .extracting(StoreProductResponse::productId).containsExactly(3L);
+    }
 }
