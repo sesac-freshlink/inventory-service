@@ -107,6 +107,21 @@ class StoreProductServiceTest {
     }
 
     @Test
+    void 응답에_최근_7일_순판매_수량을_싣고_환불이_더_많으면_0이다() {
+        when(badges.load(any(), any())).thenReturn(new StoreProductBadges.Snapshot(
+                Set.of(), Map.of(), Map.of(1L, 4, 2L, -1), Set.of(), NOW));
+        when(storeProductStockRepository.findStoreProducts(1L, null, null)).thenReturn(List.of(
+                new StoreProductRow(1L, "가", "c", 1L, null, 1, NOW.plusDays(1), 0, null, null),
+                new StoreProductRow(2L, "나", "c", 1L, null, 1, NOW.plusDays(1), 0, null, null),
+                new StoreProductRow(3L, "다", "c", 1L, null, 1, NOW.plusDays(1), 0, null, null)
+        ));
+
+        assertThat(service.getStoreProducts(1L, StoreProductQuery.of(null)))
+                .extracting(StoreProductResponse::productId, StoreProductResponse::soldRecently)
+                .containsExactly(tuple(1L, 4), tuple(2L, 0), tuple(3L, 0));
+    }
+
+    @Test
     void 추천만_신상품만은_표시값으로_거르고_응답에도_표시한다() {
         when(badges.load(any(), any())).thenReturn(new StoreProductBadges.Snapshot(
                 Set.of(1L, 2L),
