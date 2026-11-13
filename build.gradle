@@ -40,6 +40,7 @@ dependencies {
     runtimeOnly 'com.mysql:mysql-connector-j'
     implementation platform('io.awspring.cloud:spring-cloud-aws-dependencies:4.2.0')
     implementation 'io.awspring.cloud:spring-cloud-aws-starter-sqs'
+    implementation 'software.amazon.awssdk:bedrockruntime'                      // AI 점주 비서: Bedrock Claude Converse 호출 (버전은 Spring Cloud AWS BOM이 정하는 AWS SDK와 같다)
     runtimeOnly 'software.amazon.awssdk:sts'
 
     implementation 'net.javacrumbs.shedlock:shedlock-spring:7.10.1'
