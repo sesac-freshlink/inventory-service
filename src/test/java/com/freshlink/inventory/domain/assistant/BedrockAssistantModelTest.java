@@ -20,6 +20,7 @@ import software.amazon.awssdk.services.bedrockruntime.model.ConverseOutput;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
+import software.amazon.awssdk.services.bedrockruntime.model.StopReason;
 import software.amazon.awssdk.services.bedrockruntime.model.ThrottlingException;
 import software.amazon.awssdk.services.bedrockruntime.model.TokenUsage;
 
@@ -48,8 +49,37 @@ class BedrockAssistantModelTest {
         assertThat(sent.getValue().messages()).singleElement()
                 .satisfies(m -> assertThat(m.content()).singleElement().extracting(ContentBlock::text).isEqualTo("{요약} 질문"));
         assertThat(sent.getValue().inferenceConfig().maxTokens()).isEqualTo(BedrockAssistantModel.MAX_TOKENS);
+        assertThat(sent.getValue().additionalModelRequestFields().asMap().get("thinking").asMap().get("type").asString())
+                .isEqualTo("between_tools");
         assertThat(sent.getValue().overrideConfiguration()).get()
                 .satisfies(o -> assertThat(o.apiCallTimeout()).contains(Duration.ofSeconds(22)));
+    }
+
+    @Test
+    void 답이_비어_있으면_실패로_본다() {
+        when(client.converse(any(ConverseRequest.class))).thenReturn(response(StopReason.END_TURN, "  "));
+
+        assertThatThrownBy(() -> model.ask("s", "u", Duration.ofSeconds(22)))
+                .isInstanceOfSatisfying(AssistantModelException.class, e -> assertThat(e.timedOut()).isFalse());
+    }
+
+    @Test
+    void 답이_토큰_상한에서_잘렸으면_실패로_본다() {
+        when(client.converse(any(ConverseRequest.class))).thenReturn(response(StopReason.MAX_TOKENS, "이미 유통기"));
+
+        assertThatThrownBy(() -> model.ask("s", "u", Duration.ofSeconds(22)))
+                .isInstanceOfSatisfying(AssistantModelException.class, e -> assertThat(e.timedOut()).isFalse());
+    }
+
+    private static ConverseResponse response(StopReason stopReason, String text) {
+        return ConverseResponse.builder()
+                .stopReason(stopReason)
+                .output(ConverseOutput.fromMessage(Message.builder()
+                        .role(ConversationRole.ASSISTANT)
+                        .content(ContentBlock.fromText(text))
+                        .build()))
+                .usage(TokenUsage.builder().inputTokens(10).outputTokens(1000).totalTokens(1010).build())
+                .build();
     }
 
     @Test

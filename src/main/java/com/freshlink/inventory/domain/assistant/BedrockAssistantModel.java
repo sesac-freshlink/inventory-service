@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
+import software.amazon.awssdk.core.document.Document;
 import software.amazon.awssdk.core.exception.ApiCallTimeoutException;
 import software.amazon.awssdk.core.exception.SdkException;
 import software.amazon.awssdk.services.bedrockruntime.BedrockRuntimeClient;
@@ -13,6 +14,7 @@ import software.amazon.awssdk.services.bedrockruntime.model.ConverseRequest;
 import software.amazon.awssdk.services.bedrockruntime.model.ConverseResponse;
 import software.amazon.awssdk.services.bedrockruntime.model.InferenceConfiguration;
 import software.amazon.awssdk.services.bedrockruntime.model.Message;
+import software.amazon.awssdk.services.bedrockruntime.model.StopReason;
 import software.amazon.awssdk.services.bedrockruntime.model.SystemContentBlock;
 import software.amazon.awssdk.services.bedrockruntime.model.TokenUsage;
 
@@ -24,6 +26,14 @@ public class BedrockAssistantModel implements AssistantModel {
 
     /** 답 길이 상한(문서 3-3 4번) */
     static final int MAX_TOKENS = 1000;
+
+    /**
+     * 생각(thinking) 끄기. Sonnet 5.5는 기본으로 생각을 하고 그 토큰도 maxTokens에 들어가서,
+     * 요약이 크면 답 글자를 쓰기 전에 상한에 닿아 빈 답이 왔다(11/13 dev). 숫자는 요약에 이미 계산돼 있다
+     */
+    static final Document NO_THINKING = Document.mapBuilder()
+            .putDocument("thinking", Document.mapBuilder().putString("type", "between_tools").build())
+            .build();
 
     private final BedrockRuntimeClient client;
     private final String modelId;
@@ -43,6 +53,7 @@ public class BedrockAssistantModel implements AssistantModel {
                         .content(ContentBlock.fromText(user))
                         .build())
                 .inferenceConfig(InferenceConfiguration.builder().maxTokens(MAX_TOKENS).build())
+                .additionalModelRequestFields(NO_THINKING)
                 .overrideConfiguration(config -> config.apiCallTimeout(timeout))
                 .build();
         ConverseResponse response;
@@ -57,6 +68,10 @@ public class BedrockAssistantModel implements AssistantModel {
                 .map(ContentBlock::text)
                 .filter(Objects::nonNull)
                 .collect(Collectors.joining());
+        if (text.isBlank() || response.stopReason() == StopReason.MAX_TOKENS) {
+            // 빈 답이나 중간에 잘린 답은 보여 주지 않고 규칙 답으로 넘긴다
+            throw new AssistantModelException("Bedrock 답이 비었거나 잘림: stopReason=" + response.stopReasonAsString(), false, null);
+        }
         TokenUsage usage = response.usage();
         return new ModelAnswer(
                 text,
