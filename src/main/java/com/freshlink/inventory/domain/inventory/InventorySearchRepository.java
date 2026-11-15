@@ -141,7 +141,8 @@ public class InventorySearchRepository {
                 available < safetyStock,
                 rs.getBoolean("has_memo"),
                 0.0,
-                null // 소진 예상은 InventoryQueryService가 원장으로 채운다
+                null, // 소진 예상은 InventoryQueryService가 원장으로 채운다
+                0 // 마감세일 수량도 InventoryQueryService가 채운다
         );
     };
 }

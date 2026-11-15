@@ -5,6 +5,8 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.freshlink.common.error.BusinessException;
@@ -65,6 +67,12 @@ public class StoreProductService {
             return List.of();
         }
         return all.subList((int) from, (int) Math.min(from + size, all.size()));
+    }
+
+    /** 점주 재고 목록(S-10)의 마감세일 수량 칸. 고객 목록 응답과 같은 계산이다(상품 번호 → 수량) */
+    public Map<Long, Integer> clearanceQuantities(Long storeId) {
+        return getStoreProducts(storeId, StoreProductQuery.of(null)).stream()
+                .collect(Collectors.toMap(StoreProductResponse::productId, StoreProductResponse::clearanceQuantity));
     }
 
     /**
