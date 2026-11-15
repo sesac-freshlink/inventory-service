@@ -55,7 +55,7 @@ flowchart LR
 
 | ID | 기능 | API / 방식 | 완료 기준 |
 | --- | --- | --- | --- |
-| S-10 | 재고 목록 | `GET /owner/inventory` (선택 쿼리 `q` 상품명·상품 코드 검색, `status` IMMINENT·EXPIRED·SOLD_OUT·LOW_STOCK 쉼표로 여러 개(모두 만족), `memo=true` 메모 있는 상품만, `page` 0부터, `size` 1~100 기본 20) → `{items, page, size, totalElements, totalPages, lowStockCount}` | `items`는 상품별 총 수량·예약 수량·구매 가능 수량, `safetyStock`·`lowStock`(구매 가능 < 안전재고), `hasMemo`, 재고 소진 예상 `dailySales`(최근 7일 순판매 ÷ 7, 소수 첫째 자리)·`daysOfStock`(구매 가능 ÷ dailySales 내림, 최근 7일 판매가 없으면 null), `clearanceQuantity`(지금 마감세일로 살 수 있는 수량, 고객 상품 목록과 같은 계산). 상품명 순. `lowStockCount`는 검색·필터와 상관없이 점포 전체 부족 상품 수. 집계·거르기·자르기를 SQL 한 번으로 한다(6장). 오류: 400 `INVALID_PAGE` |
+| S-10 | 재고 목록 | `GET /owner/inventory` (선택 쿼리 `q` 상품명·상품 코드 검색, `status` IMMINENT·EXPIRED·SOLD_OUT·LOW_STOCK·RESTOCK(품절 또는 부족) 쉼표로 여러 개(모두 만족), `memo=true` 메모 있는 상품만, `page` 0부터, `size` 1~100 기본 20) → `{items, page, size, totalElements, totalPages, lowStockCount}` | `items`는 상품별 총 수량·예약 수량·구매 가능 수량, `safetyStock`·`lowStock`(구매 가능 < 안전재고), `hasMemo`, 재고 소진 예상 `dailySales`(최근 7일 순판매 ÷ 7, 소수 첫째 자리)·`daysOfStock`(구매 가능 ÷ dailySales 내림, 최근 7일 판매가 없으면 null), `clearanceQuantity`(지금 마감세일로 살 수 있는 수량, 고객 상품 목록과 같은 계산). 상품명 순. `lowStockCount`는 검색·필터와 상관없이 점포 전체 부족 상품 수. 집계·거르기·자르기를 SQL 한 번으로 한다(6장). 오류: 400 `INVALID_PAGE` |
 | S-11 | lot별 재고 | `GET /owner/inventory/{productId}/lots` | 유통기한별 수량 |
 | S-13 | 변동 이력 | `GET /owner/inventory/ledger` | 이력 합계가 현재 재고와 같다 |
 | S-15 | 실시간 반영 | `GET /owner/inventory` (점주 화면이 3초마다 조회) | 결제·입고·폐기 후 3초 안에 새로고침 없이 갱신 |
