@@ -14,6 +14,7 @@ import com.freshlink.common.error.BusinessException;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
+import com.freshlink.inventory.domain.product.StoreProductService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +29,7 @@ public class InventoryQueryService {
     private final InventoryCalculationService calculationService;
     private final InventorySearchRepository inventorySearchRepository;
     private final LedgerRepository ledgerRepository;
+    private final StoreProductService storeProductService;
     private final Clock clock;
 
     public InventoryQueryService(
@@ -36,6 +38,7 @@ public class InventoryQueryService {
             InventoryCalculationService calculationService,
             InventorySearchRepository inventorySearchRepository,
             LedgerRepository ledgerRepository,
+            StoreProductService storeProductService,
             Clock clock
     ) {
         this.inventoryLotRepository = inventoryLotRepository;
@@ -43,6 +46,7 @@ public class InventoryQueryService {
         this.calculationService = calculationService;
         this.inventorySearchRepository = inventorySearchRepository;
         this.ledgerRepository = ledgerRepository;
+        this.storeProductService = storeProductService;
         this.clock = clock;
     }
 
@@ -66,9 +70,11 @@ public class InventoryQueryService {
         LocalDateTime now = LocalDateTime.now(clock);
 
         Map<Long, Integer> netSold = netSoldByProduct(storeId, now);
+        Map<Long, Integer> clearance = storeProductService.clearanceQuantities(storeId);
         List<InventorySummaryResponse> items = inventorySearchRepository.search(
                         storeId, condition, now, pageNumber * pageSize, pageSize).stream()
-                .map(item -> item.withSalesPace(netSold.getOrDefault(item.productId(), 0), SALES_PACE_DAYS))
+                .map(item -> item.withSalesPace(netSold.getOrDefault(item.productId(), 0), SALES_PACE_DAYS)
+                        .withClearanceQuantity(clearance.getOrDefault(item.productId(), 0)))
                 .toList();
         long total = inventorySearchRepository.count(storeId, condition, now);
         long lowStockCount = inventorySearchRepository.count(
@@ -82,6 +88,16 @@ public class InventoryQueryService {
                 (int) ((total + pageSize - 1) / pageSize),
                 lowStockCount
         );
+    }
+
+    /**
+     * 이 점포 재고 목록에 있는(입고된 적 있는) 상품 전부의 지금 재고. 추천·선착순 설정 목록에 붙인다.
+     * 재고 목록과 같은 SQL에서 페이지만 자르지 않는다. 없는 상품은 이 점포에 입고된 적이 없다
+     */
+    public Map<Long, ProductStock> stockByProduct(Long storeId) {
+        return inventorySearchRepository.search(
+                        storeId, InventorySearchCondition.all(), LocalDateTime.now(clock), 0, Integer.MAX_VALUE).stream()
+                .collect(Collectors.toMap(InventorySummaryResponse::productId, ProductStock::of));
     }
 
     /**

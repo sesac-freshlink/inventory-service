@@ -9,6 +9,8 @@ import java.util.Map;
 import com.freshlink.common.error.BusinessException;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
 import com.freshlink.inventory.domain.firstcome.FirstComeSaleRepository.FirstComeSale;
+import com.freshlink.inventory.domain.inventory.InventoryQueryService;
+import com.freshlink.inventory.domain.inventory.ProductStock;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
 import com.freshlink.inventory.domain.storestock.StoreProductRow;
@@ -33,17 +35,20 @@ public class FirstComeService {
     private final FirstComeSaleRepository firstComeSaleRepository;
     private final ProductRepository productRepository;
     private final StoreProductStockRepository storeProductStockRepository;
+    private final InventoryQueryService inventoryQueryService;
     private final Clock clock;
 
     public FirstComeService(
             FirstComeSaleRepository firstComeSaleRepository,
             ProductRepository productRepository,
             StoreProductStockRepository storeProductStockRepository,
+            InventoryQueryService inventoryQueryService,
             Clock clock
     ) {
         this.firstComeSaleRepository = firstComeSaleRepository;
         this.productRepository = productRepository;
         this.storeProductStockRepository = storeProductStockRepository;
+        this.inventoryQueryService = inventoryQueryService;
         this.clock = clock;
     }
 
@@ -58,14 +63,15 @@ public class FirstComeService {
     public List<FirstComeSettingResponse> getSettings(Long storeId) {
         LocalDateTime now = LocalDateTime.now(clock);
         Map<Long, FirstComeSale> sales = firstComeSaleRepository.findAll(storeId);
+        Map<Long, ProductStock> stock = inventoryQueryService.stockByProduct(storeId);
         return productRepository.findAll().stream()
                 .sorted(Comparator.comparing(Product::getName).thenComparing(Product::getId))
                 .map(product -> {
                     FirstComeSale sale = sales.get(product.getId());
                     if (sale == null) {
-                        return toSetting(product, null);
+                        return toSetting(product, null, stock.get(product.getId()));
                     }
-                    return toSetting(product, status(storeId, sale, now));
+                    return toSetting(product, status(storeId, sale, now), stock.get(product.getId()));
                 })
                 .toList();
     }
@@ -77,7 +83,7 @@ public class FirstComeService {
         firstComeSaleRepository.upsert(storeId, productId, limit, now);
         log.info("선착순 켜기·한도 변경: storeId={}, productId={}, limit={}", storeId, productId, limit);
         FirstComeSale sale = firstComeSaleRepository.find(storeId, productId).orElseThrow();
-        return toSetting(product, status(storeId, sale, now));
+        return toSetting(product, status(storeId, sale, now), stockOf(storeId, productId));
     }
 
     @Transactional
@@ -85,7 +91,7 @@ public class FirstComeService {
         Product product = findProduct(productId);
         firstComeSaleRepository.remove(storeId, productId);
         log.info("선착순 끄기: storeId={}, productId={}", storeId, productId);
-        return toSetting(product, null);
+        return toSetting(product, null, stockOf(storeId, productId));
     }
 
     /**
@@ -113,12 +119,18 @@ public class FirstComeService {
                 .orElseThrow(() -> new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND));
     }
 
-    private static FirstComeSettingResponse toSetting(Product product, FirstComeResponse status) {
+    /** 바꾼 한 상품의 지금 재고. 이 점포에 입고된 적이 없으면 null */
+    private ProductStock stockOf(Long storeId, Long productId) {
+        return inventoryQueryService.stockByProduct(storeId).get(productId);
+    }
+
+    private static FirstComeSettingResponse toSetting(Product product, FirstComeResponse status, ProductStock stock) {
         return new FirstComeSettingResponse(
                 product.getId(), product.getProductCode(), product.getName(), product.getCategory(),
                 status != null,
                 status == null ? null : status.limit(),
                 status == null ? null : status.used(),
-                status == null ? null : status.remaining());
+                status == null ? null : status.remaining(),
+                stock);
     }
 }
