@@ -49,7 +49,7 @@ public class InventoryController {
     }
 
     @Operation(summary = "S-10 점포 재고 목록 한 페이지 (점주 화면이 3초마다 조회). "
-            + "q = 상품명·상품 코드 검색, status = IMMINENT·EXPIRED·SOLD_OUT·LOW_STOCK 쉼표로 여러 개(모두 만족), "
+            + "q = 상품명·상품 코드 검색, status = IMMINENT·EXPIRED·SOLD_OUT·LOW_STOCK·RESTOCK(품절 또는 부족) 쉼표로 여러 개(모두 만족), "
             + "memo = true면 메모 있는 상품만, page 0부터, size 1~100(기본 20)")
     @GetMapping
     public ResponseEntity<InventoryPageResponse> getInventory(

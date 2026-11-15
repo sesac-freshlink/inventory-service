@@ -100,6 +100,7 @@ public class InventorySearchRepository {
                 case EXPIRED -> "expired_lot_count > 0";
                 case SOLD_OUT -> "available_quantity = 0";
                 case LOW_STOCK -> "available_quantity < safety_stock";
+                case RESTOCK -> "(available_quantity = 0 OR available_quantity < safety_stock)";
             });
         }
         if (!having.isEmpty()) {
