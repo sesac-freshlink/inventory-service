@@ -107,6 +107,22 @@ class OwnerListStockFieldsTest {
                 .andExpect(jsonPath("$[?(@.productId == " + never + ")].stock").value(contains(nullValue())));
     }
 
+    @Test
+    void 재고_목록과_추천_설정에_상품_브랜드가_붙고_없으면_null이다() throws Exception {
+        long storeId = 7404L;
+        long branded = product("P7407", "브랜드 우유");
+        long plain = product("P7408", "브랜드 없는 김밥");
+        jdbcTemplate.update("UPDATE product SET brand = ? WHERE id = ?", "빙그레", branded);
+        inbound(storeId, "P7407", 5, FAR);
+        inbound(storeId, "P7408", 5, FAR);
+
+        owner(get("/owner/inventory").param("size", "100"), storeId).andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[?(@.productId == " + branded + ")].brand").value(contains("빙그레")))
+                .andExpect(jsonPath("$.items[?(@.productId == " + plain + ")].brand").value(contains(nullValue())));
+        owner(get("/owner/inventory/recommendations"), storeId).andExpect(status().isOk())
+                .andExpect(jsonPath("$[?(@.productId == " + branded + ")].stock.brand").value(contains("빙그레")));
+    }
+
     private ResultActions owner(MockHttpServletRequestBuilder request, long storeId) throws Exception {
         return mockMvc.perform(request.header("X-Store-Id", String.valueOf(storeId)));
     }

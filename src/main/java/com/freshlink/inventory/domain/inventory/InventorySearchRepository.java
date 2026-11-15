@@ -32,6 +32,7 @@ public class InventorySearchRepository {
                    p.product_code,
                    p.name,
                    p.category,
+                   p.brand,
                    p.price,
                    p.image_url,
                    SUM(l.quantity)          AS total_quantity,
@@ -54,7 +55,7 @@ public class InventorySearchRepository {
             """;
 
     private static final String GROUP_BY = """
-            GROUP BY p.id, p.product_code, p.name, p.category, p.price, p.image_url, s.quantity, m.id
+            GROUP BY p.id, p.product_code, p.name, p.category, p.brand, p.price, p.image_url, s.quantity, m.id
             """;
 
     private final NamedParameterJdbcTemplate jdbc;
@@ -130,6 +131,7 @@ public class InventorySearchRepository {
                 rs.getString("product_code"),
                 rs.getString("name"),
                 rs.getString("category"),
+                rs.getString("brand"),
                 rs.getLong("price"),
                 rs.getString("image_url"),
                 rs.getInt("total_quantity"),

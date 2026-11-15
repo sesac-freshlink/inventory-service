@@ -47,6 +47,7 @@ class InventoryControllerTest {
                 "P015",
                 "매운 컵라면 115g",
                 "라면",
+                "오뚜기",
                 1700L,
                 "https://img.example/P015.jpg",
                 20,
