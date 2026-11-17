@@ -16,6 +16,11 @@ app:
   store-stock:
     # 고객용 재고 조회 표에서 값이 맞는 시각이 지난 행을 다시 계산하는 간격. 그 사이 그 상품은 품절로 보인다
     refresh-delay-ms: ${STORE_STOCK_REFRESH_MS:60000}
+  assistant:
+    # AI 점주 비서 (.github docs/기능이해/AI-점주-비서.md). 기본은 꺼짐(503). dev부터 gitops values로 켠다
+    enabled: ${ASSISTANT_ENABLED:false}
+    # Bedrock 모델 ID. 비어 있으면 AI를 부르지 않고 규칙 기반 답을 준다. 자격 증명·리전은 IRSA
+    model-id: ${BEDROCK_MODEL_ID:}
 
 freshlink:
   messaging:

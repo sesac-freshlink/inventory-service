@@ -9,5 +9,10 @@ public enum InventoryStatusFilter {
     /** 구매 가능 수량이 0이다 */
     SOLD_OUT,
     /** 구매 가능 수량이 안전재고(S-40)보다 적다 */
-    LOW_STOCK
+    LOW_STOCK,
+    /**
+     * 재입고 필요 = 품절 또는 부족(점주 홈 카드). 품절은 보통 부족에도 들어가서 SOLD_OUT·LOW_STOCK 건수를 더하면
+     * 두 번 센다. 안전재고 0인 품절 상품도 여기에 든다
+     */
+    RESTOCK
 }

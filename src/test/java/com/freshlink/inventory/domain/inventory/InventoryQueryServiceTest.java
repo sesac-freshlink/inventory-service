@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
+import com.freshlink.inventory.domain.product.StoreProductService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -43,6 +44,9 @@ class InventoryQueryServiceTest {
     @Mock
     LedgerRepository ledgerRepository;
 
+    @Mock
+    StoreProductService storeProductService;
+
     private InventoryQueryService service;
 
     @BeforeEach
@@ -57,6 +61,7 @@ class InventoryQueryServiceTest {
                 calculationService,
                 inventorySearchRepository,
                 ledgerRepository,
+                storeProductService,
                 clock
         );
     }

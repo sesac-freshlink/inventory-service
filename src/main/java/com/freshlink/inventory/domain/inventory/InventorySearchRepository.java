@@ -32,6 +32,7 @@ public class InventorySearchRepository {
                    p.product_code,
                    p.name,
                    p.category,
+                   p.brand,
                    p.price,
                    p.image_url,
                    SUM(l.quantity)          AS total_quantity,
@@ -54,7 +55,7 @@ public class InventorySearchRepository {
             """;
 
     private static final String GROUP_BY = """
-            GROUP BY p.id, p.product_code, p.name, p.category, p.price, p.image_url, s.quantity, m.id
+            GROUP BY p.id, p.product_code, p.name, p.category, p.brand, p.price, p.image_url, s.quantity, m.id
             """;
 
     private final NamedParameterJdbcTemplate jdbc;
@@ -100,6 +101,7 @@ public class InventorySearchRepository {
                 case EXPIRED -> "expired_lot_count > 0";
                 case SOLD_OUT -> "available_quantity = 0";
                 case LOW_STOCK -> "available_quantity < safety_stock";
+                case RESTOCK -> "(available_quantity = 0 OR available_quantity < safety_stock)";
             });
         }
         if (!having.isEmpty()) {
@@ -129,6 +131,7 @@ public class InventorySearchRepository {
                 rs.getString("product_code"),
                 rs.getString("name"),
                 rs.getString("category"),
+                rs.getString("brand"),
                 rs.getLong("price"),
                 rs.getString("image_url"),
                 rs.getInt("total_quantity"),
@@ -141,7 +144,8 @@ public class InventorySearchRepository {
                 available < safetyStock,
                 rs.getBoolean("has_memo"),
                 0.0,
-                null // 소진 예상은 InventoryQueryService가 원장으로 채운다
+                null, // 소진 예상은 InventoryQueryService가 원장으로 채운다
+                0 // 마감세일 수량도 InventoryQueryService가 채운다
         );
     };
 }

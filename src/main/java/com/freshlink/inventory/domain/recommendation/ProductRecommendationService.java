@@ -5,11 +5,14 @@ import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import com.freshlink.common.error.BusinessException;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
 import com.freshlink.inventory.domain.inventory.InventoryLotRepository;
+import com.freshlink.inventory.domain.inventory.InventoryQueryService;
+import com.freshlink.inventory.domain.inventory.ProductStock;
 import com.freshlink.inventory.domain.product.Product;
 import com.freshlink.inventory.domain.product.ProductRepository;
 
@@ -30,17 +33,20 @@ public class ProductRecommendationService {
     private final ProductRecommendationRepository recommendationRepository;
     private final ProductRepository productRepository;
     private final InventoryLotRepository inventoryLotRepository;
+    private final InventoryQueryService inventoryQueryService;
     private final Clock clock;
 
     public ProductRecommendationService(
             ProductRecommendationRepository recommendationRepository,
             ProductRepository productRepository,
             InventoryLotRepository inventoryLotRepository,
+            InventoryQueryService inventoryQueryService,
             Clock clock
     ) {
         this.recommendationRepository = recommendationRepository;
         this.productRepository = productRepository;
         this.inventoryLotRepository = inventoryLotRepository;
+        this.inventoryQueryService = inventoryQueryService;
         this.clock = clock;
     }
 
@@ -50,9 +56,11 @@ public class ProductRecommendationService {
      */
     public List<ProductRecommendationResponse> getRecommendations(Long storeId) {
         Set<Long> recommended = recommendationRepository.findProductIds(storeId);
+        Map<Long, ProductStock> stock = inventoryQueryService.stockByProduct(storeId);
         return productRepository.findAllById(inventoryLotRepository.findProductIdsByStoreId(storeId)).stream()
                 .sorted(Comparator.comparing(Product::getName).thenComparing(Product::getId))
-                .map(product -> toResponse(product, recommended.contains(product.getId())))
+                .map(product -> toResponse(
+                        product, recommended.contains(product.getId()), stock.get(product.getId())))
                 .toList();
     }
 
@@ -66,7 +74,7 @@ public class ProductRecommendationService {
             recommendationRepository.remove(storeId, productId);
         }
         log.info("추천상품 변경: storeId={}, productId={}, recommended={}", storeId, productId, recommended);
-        return toResponse(product, recommended);
+        return toResponse(product, recommended, inventoryQueryService.stockByProduct(storeId).get(productId));
     }
 
     /**
@@ -89,14 +97,17 @@ public class ProductRecommendationService {
             }
         }
         log.info("추천상품 한 번에 변경: storeId={}, products={}, recommended={}", storeId, ids.size(), recommended);
+        Map<Long, ProductStock> stock = inventoryQueryService.stockByProduct(storeId);
         return products.stream()
                 .sorted(Comparator.comparing(Product::getName).thenComparing(Product::getId))
-                .map(product -> toResponse(product, recommended))
+                .map(product -> toResponse(product, recommended, stock.get(product.getId())))
                 .toList();
     }
 
-    private static ProductRecommendationResponse toResponse(Product product, boolean recommended) {
+    private static ProductRecommendationResponse toResponse(
+            Product product, boolean recommended, ProductStock stock) {
         return new ProductRecommendationResponse(
-                product.getId(), product.getProductCode(), product.getName(), product.getCategory(), recommended);
+                product.getId(), product.getProductCode(), product.getName(), product.getCategory(), recommended,
+                stock);
     }
 }

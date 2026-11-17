@@ -23,7 +23,10 @@ public enum InventoryErrorCode implements ErrorCode {
     MEMO_CHANGED(409, "다른 화면에서 메모가 바뀌었습니다. 다시 확인해 주세요"),
     INVALID_LIMIT(400, "조회 개수(limit)는 1~100입니다"),
     INVALID_PAGE(400, "page는 0 이상, size는 1~100입니다"),
-    FIRST_COME_NOT_FOUND(404, "선착순 상품이 아닙니다");
+    FIRST_COME_NOT_FOUND(404, "선착순 상품이 아닙니다"),
+    ASSISTANT_DISABLED(503, "지금은 AI 비서를 쓸 수 없어요"),
+    ASSISTANT_BUSY(429, "잠시 뒤 다시 물어봐 주세요"),
+    ASSISTANT_RATE_LIMITED(429, "오늘 질문 횟수를 다 썼어요");
 
     private final int status;
     private final String message;
