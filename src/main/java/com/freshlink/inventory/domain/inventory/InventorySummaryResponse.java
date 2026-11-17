@@ -8,7 +8,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
         + "lowStock은 구매 가능 수량이 안전재고(S-40)보다 적을 때 true. hasMemo는 점주 상품 메모가 있으면 true. "
         + "dailySales는 최근 7일 순판매(판매 − 환불)의 하루 평균(소수 첫째 자리), "
         + "daysOfStock은 지금 구매 가능 수량이 그 속도로 며칠 버티는지(내림). 최근 7일 판매가 없으면 null. "
-        + "clearanceQuantity는 지금 마감세일로 살 수 있는 수량(고객 상품 목록과 같은 계산, 06~23시·선착순 상품 제외, 아니면 0)")
+        + "clearanceQuantity는 지금 마감세일로 살 수 있는 수량(고객 상품 목록과 같은 계산, 점포가 분류마다 정한 판매 시간 안·마감세일을 끈 분류와 선착순 상품 제외, 아니면 0)")
 public record InventorySummaryResponse(
         Long productId,
         String productCode,

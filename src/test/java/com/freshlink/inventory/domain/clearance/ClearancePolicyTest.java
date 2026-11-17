@@ -18,19 +18,4 @@ class ClearancePolicyTest {
         assertThat(ClearancePolicy.isClearanceLot(NOW.plusHours(24).plusSeconds(1), NOW)).isFalse();
         assertThat(ClearancePolicy.isClearanceLot(NOW, NOW)).isFalse();
     }
-
-    @Test
-    void 판매_시간은_06시_이상_23시_미만이다() {
-        assertThat(ClearancePolicy.inSaleHours(NOW.withHour(6).withMinute(0))).isTrue();
-        assertThat(ClearancePolicy.inSaleHours(NOW.withHour(5).withMinute(59))).isFalse();
-        assertThat(ClearancePolicy.inSaleHours(NOW.withHour(22).withMinute(59))).isTrue();
-        assertThat(ClearancePolicy.inSaleHours(NOW.withHour(23).withMinute(0))).isFalse();
-    }
-
-    @Test
-    void 단가는_30퍼센트_할인하고_10원_아래를_버린다() {
-        assertThat(ClearancePolicy.price(1500L)).isEqualTo(1050L);
-        assertThat(ClearancePolicy.price(1990L)).isEqualTo(1390L);
-        assertThat(ClearancePolicy.price(1234L)).isEqualTo(860L);
-    }
 }

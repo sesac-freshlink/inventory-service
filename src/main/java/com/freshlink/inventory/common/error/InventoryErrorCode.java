@@ -26,7 +26,9 @@ public enum InventoryErrorCode implements ErrorCode {
     FIRST_COME_NOT_FOUND(404, "선착순 상품이 아닙니다"),
     ASSISTANT_DISABLED(503, "지금은 AI 비서를 쓸 수 없어요"),
     ASSISTANT_BUSY(429, "잠시 뒤 다시 물어봐 주세요"),
-    ASSISTANT_RATE_LIMITED(429, "오늘 질문 횟수를 다 썼어요");
+    ASSISTANT_RATE_LIMITED(429, "오늘 질문 횟수를 다 썼어요"),
+    CATEGORY_NOT_FOUND(404, "없는 분류입니다"),
+    INVALID_CLEARANCE_SETTING(400, "마감세일 판매 시작 시각은 끝 시각보다 빨라야 합니다");
 
     private final int status;
     private final String message;
