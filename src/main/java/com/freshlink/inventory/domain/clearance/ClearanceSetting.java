@@ -15,8 +15,9 @@ public record ClearanceSetting(boolean enabled, int discountPercent, int saleSta
 
     public static final ClearanceSetting DEFAULT = new ClearanceSetting(true, 30, 6, 23);
 
-    public static final int MIN_DISCOUNT_PERCENT = 1;
-    public static final int MAX_DISCOUNT_PERCENT = 95;
+    /** 할인율 범위(11/17 사용자: 10~90%). DB CHECK(V14)와 같다 */
+    public static final int MIN_DISCOUNT_PERCENT = 10;
+    public static final int MAX_DISCOUNT_PERCENT = 90;
     /** 할인가의 바닥. 정가가 이보다 싸면 정가 */
     public static final long MIN_PRICE = 10L;
 

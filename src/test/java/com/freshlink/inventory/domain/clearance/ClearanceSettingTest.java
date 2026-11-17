@@ -35,16 +35,16 @@ class ClearanceSettingTest {
     }
 
     @Test
-    void 할인율_95퍼센트도_10원_아래를_버린다() {
-        ClearanceSetting s = new ClearanceSetting(true, 95, 6, 23);
-        assertThat(s.price(1500L)).isEqualTo(70L);   // 75 → 70
-        assertThat(s.price(2990L)).isEqualTo(140L);  // 149.5 → 149 → 140
+    void 할인율_90퍼센트도_10원_아래를_버린다() {
+        ClearanceSetting s = new ClearanceSetting(true, 90, 6, 23);
+        assertThat(s.price(1500L)).isEqualTo(150L);
+        assertThat(s.price(2990L)).isEqualTo(290L);  // 299 → 290
     }
 
     @Test
     void 할인가가_10원보다_작으면_10원이고_정가를_넘지_않는다() {
-        ClearanceSetting s = new ClearanceSetting(true, 95, 6, 23);
-        assertThat(s.price(190L)).isEqualTo(10L);    // 9.5 → 0 → 10
+        ClearanceSetting s = new ClearanceSetting(true, 90, 6, 23);
+        assertThat(s.price(90L)).isEqualTo(10L);     // 9 → 0 → 10
         assertThat(s.price(5L)).isEqualTo(5L);
     }
 }
