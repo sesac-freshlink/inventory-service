@@ -96,9 +96,10 @@ public class StoreProductService {
             rows = rows.filter(row -> snapshot.isFirstCome(row.productId()));
         }
         if (query.clearanceOnly()) {
-            // 응답의 clearanceQuantity와 같은 계산이라 판매 시간(06~23시) 밖·선착순 상품은 빠진다
+            // 응답의 clearanceQuantity와 같은 계산이라 판매 시간 밖·마감세일을 끈 분류·선착순 상품은 빠진다
             rows = rows.filter(row -> StoreProductStockView.of(
-                    row, snapshot.isFirstCome(row.productId()), now).clearanceQuantity() > 0);
+                    row, snapshot.isFirstCome(row.productId()),
+                    snapshot.clearanceSetting(row.category()), now).clearanceQuantity() > 0);
         }
         if (query.sort() == StoreProductSort.POPULAR) {
             // 쿼리가 이미 상품명 순이라 안정 정렬이면 판매 수가 같을 때 상품명 순이 유지된다
@@ -107,7 +108,8 @@ public class StoreProductService {
         }
 
         return rows.map(row -> {
-            StoreProductStockView stock = StoreProductStockView.of(row, snapshot.isFirstCome(row.productId()), now);
+            StoreProductStockView stock = StoreProductStockView.of(row, snapshot.isFirstCome(row.productId()),
+                    snapshot.clearanceSetting(row.category()), now);
             return new StoreProductResponse(
                     row.productId(),
                     row.name(),
@@ -123,7 +125,8 @@ public class StoreProductService {
                     stock.clearanceQuantity(),
                     stock.clearancePrice(),
                     stock.clearanceExpiry(),
-                    snapshot.soldRecently(row.productId())
+                    snapshot.soldRecently(row.productId()),
+                    stock.clearanceDiscountPercent()
             );
         }).toList();
     }
@@ -137,7 +140,8 @@ public class StoreProductService {
         StoreProductRow row = storeProductStockRepository.findStoreProduct(storeId, productId)
                 .orElseThrow(() -> new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND));
         StoreProductBadges.Snapshot snapshot = badges.load(storeId, now);
-        StoreProductStockView stock = StoreProductStockView.of(row, snapshot.isFirstCome(row.productId()), now);
+        StoreProductStockView stock = StoreProductStockView.of(row, snapshot.isFirstCome(row.productId()),
+                    snapshot.clearanceSetting(row.category()), now);
 
         return new StoreProductDetailResponse(
                 row.productId(),
@@ -153,7 +157,8 @@ public class StoreProductService {
                 snapshot.isFirstCome(row.productId()),
                 stock.clearanceQuantity(),
                 stock.clearancePrice(),
-                stock.clearanceExpiry()
+                stock.clearanceExpiry(),
+                stock.clearanceDiscountPercent()
         );
     }
 

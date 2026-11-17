@@ -6,6 +6,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
+import com.freshlink.inventory.domain.clearance.ClearanceSetting;
+import com.freshlink.inventory.domain.clearance.ClearanceSettingRepository;
 import com.freshlink.inventory.domain.firstcome.FirstComeSaleRepository;
 import com.freshlink.inventory.domain.inventory.LedgerRepository;
 import com.freshlink.inventory.domain.inventory.LedgerType;
@@ -16,7 +18,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * U-10 고객 목록·상세에 붙는 표시: 추천(점주가 고름), 신상품(첫 입고 7일 안), 선착순(점주가 켬),
- * 추천순에 쓰는 최근 7일 순판매. 점포 하나에 대해 쿼리 네 번으로 한꺼번에 읽는다(상품마다 묻지 않는다).
+ * 추천순에 쓰는 최근 7일 순판매, 분류별 마감세일 설정. 점포 하나에 대해 쿼리 다섯 번으로 한꺼번에 읽는다(상품마다 묻지 않는다).
  */
 @Component
 public class StoreProductBadges {
@@ -29,15 +31,18 @@ public class StoreProductBadges {
     private final ProductRecommendationRepository recommendationRepository;
     private final LedgerRepository ledgerRepository;
     private final FirstComeSaleRepository firstComeSaleRepository;
+    private final ClearanceSettingRepository clearanceSettingRepository;
 
     public StoreProductBadges(
             ProductRecommendationRepository recommendationRepository,
             LedgerRepository ledgerRepository,
-            FirstComeSaleRepository firstComeSaleRepository
+            FirstComeSaleRepository firstComeSaleRepository,
+            ClearanceSettingRepository clearanceSettingRepository
     ) {
         this.recommendationRepository = recommendationRepository;
         this.ledgerRepository = ledgerRepository;
         this.firstComeSaleRepository = firstComeSaleRepository;
+        this.clearanceSettingRepository = clearanceSettingRepository;
     }
 
     public Snapshot load(Long storeId, LocalDateTime now) {
@@ -55,7 +60,7 @@ public class StoreProductBadges {
         }
 
         return new Snapshot(recommendationRepository.findProductIds(storeId), firstInbound, sold,
-                firstComeSaleRepository.findProductIds(storeId), now);
+                firstComeSaleRepository.findProductIds(storeId), now, clearanceSettingRepository.findAll(storeId));
     }
 
     public record Snapshot(
@@ -63,8 +68,20 @@ public class StoreProductBadges {
             Map<Long, LocalDateTime> firstInbound,
             Map<Long, Integer> soldRecently,
             Set<Long> firstCome,
-            LocalDateTime now
+            LocalDateTime now,
+            Map<String, ClearanceSetting> clearanceSettings
     ) {
+        /** 마감세일 설정을 정하지 않은 점포(전부 기본값) */
+        public Snapshot(Set<Long> recommended, Map<Long, LocalDateTime> firstInbound, Map<Long, Integer> soldRecently,
+                        Set<Long> firstCome, LocalDateTime now) {
+            this(recommended, firstInbound, soldRecently, firstCome, now, Map.of());
+        }
+
+        /** 그 분류의 마감세일 설정. 정하지 않았으면 기본값 */
+        public ClearanceSetting clearanceSetting(String category) {
+            return clearanceSettings.getOrDefault(category, ClearanceSetting.DEFAULT);
+        }
+
         public boolean isFirstCome(Long productId) {
             return firstCome.contains(productId);
         }

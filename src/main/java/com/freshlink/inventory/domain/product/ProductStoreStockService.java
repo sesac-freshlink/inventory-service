@@ -9,7 +9,10 @@ import java.util.List;
 
 import com.freshlink.common.error.BusinessException;
 import com.freshlink.inventory.common.error.InventoryErrorCode;
-import com.freshlink.inventory.domain.clearance.ClearancePolicy;
+import java.util.Map;
+
+import com.freshlink.inventory.domain.clearance.ClearanceSetting;
+import com.freshlink.inventory.domain.clearance.ClearanceSettingRepository;
 import com.freshlink.inventory.domain.firstcome.FirstComeSaleRepository;
 import com.freshlink.inventory.domain.storestock.StoreProductStock;
 import com.freshlink.inventory.domain.storestock.StoreProductStockRepository;
@@ -31,28 +34,32 @@ public class ProductStoreStockService {
     private final StoreProductStockRepository storeProductStockRepository;
     private final ProductRepository productRepository;
     private final FirstComeSaleRepository firstComeSaleRepository;
+    private final ClearanceSettingRepository clearanceSettingRepository;
     private final Clock clock;
 
     public ProductStoreStockService(
             StoreProductStockRepository storeProductStockRepository,
             ProductRepository productRepository,
             FirstComeSaleRepository firstComeSaleRepository,
+            ClearanceSettingRepository clearanceSettingRepository,
             Clock clock
     ) {
         this.storeProductStockRepository = storeProductStockRepository;
         this.productRepository = productRepository;
         this.firstComeSaleRepository = firstComeSaleRepository;
+        this.clearanceSettingRepository = clearanceSettingRepository;
         this.clock = clock;
     }
 
     /** 지금 살 수 있는(1개 이상) 점포만, 많이 남은 순(같으면 점포 ID 순). 없는 상품은 404, 어디에도 없으면 빈 목록 */
     public List<StoreStockResponse> getStoresWithStock(Long productId) {
-        if (!productRepository.existsById(productId)) {
-            throw new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND);
-        }
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new BusinessException(InventoryErrorCode.PRODUCT_NOT_FOUND));
         LocalDateTime now = LocalDateTime.now(clock);
+        Map<Long, ClearanceSetting> settings = clearanceSettingRepository.findByCategory(product.getCategory());
         return storeProductStockRepository.findByProductId(productId).stream()
-                .map(stock -> toResponse(stock, now))
+                .map(stock -> toResponse(stock,
+                        settings.getOrDefault(stock.getStoreId(), ClearanceSetting.DEFAULT), now))
                 .filter(response -> response != null)
                 .sorted(Comparator.comparingInt(StoreStockResponse::availableQuantity).reversed()
                         .thenComparing(StoreStockResponse::storeId))
@@ -61,21 +68,21 @@ public class ProductStoreStockService {
 
     /**
      * 상품 목록과 같은 규칙(StoreProductStockView)으로 그 점포에서 지금 살 수 있는 수량을 센다. 기본 수량에 마감세일 수량을
-     * 더하되, 판매 시간(06~23시) 밖이면 마감세일 몫은 뺀다. 선착순 상품은 마감세일이 없어 전부 센다.
+     * 더하되, 그 점포가 정한 판매 시간 밖이면 마감세일 몫은 뺀다. 선착순 상품과 마감세일을 끈 분류는 마감세일이 없어 전부 센다.
      * 유통기한은 그중 가장 빠른 것이다. 살 수 있는 게 없으면 null
      */
-    private StoreStockResponse toResponse(StoreProductStock stock, LocalDateTime now) {
+    private StoreStockResponse toResponse(StoreProductStock stock, ClearanceSetting setting, LocalDateTime now) {
         int total = stock.availableAt(now);
         if (total == 0) {
             return null;
         }
-        if (firstComeSaleRepository.find(stock.getStoreId(), stock.getProductId()).isPresent()) {
+        if (!setting.enabled() || firstComeSaleRepository.find(stock.getStoreId(), stock.getProductId()).isPresent()) {
             return new StoreStockResponse(stock.getStoreId(), total,
                     toOffset(earlier(stock.getNormalExpiry(), stock.getClearanceExpiry())));
         }
         int clearance = Math.min(stock.clearanceAt(now), total);
         int normal = total - clearance;
-        int sellableClearance = ClearancePolicy.inSaleHours(now) ? clearance : 0;
+        int sellableClearance = setting.inSaleHours(now) ? clearance : 0;
         int quantity = normal + sellableClearance;
         if (quantity == 0) {
             return null;
