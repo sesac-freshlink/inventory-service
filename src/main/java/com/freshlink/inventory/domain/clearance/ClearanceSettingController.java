@@ -38,7 +38,7 @@ public class ClearanceSettingController {
                 .body(clearanceSettingService.getSettings(storeId));
     }
 
-    @Operation(summary = "분류 하나의 마감세일 설정 저장 (할인율 1~95, 판매 시간 시작 0~23·끝 1~24, 시작 < 끝. 같은 값으로 다시 보내도 결과가 같다)")
+    @Operation(summary = "분류 하나의 마감세일 설정 저장 (할인율 10~90, 판매 시간 시작 0~23·끝 1~24, 시작 < 끝. 같은 값으로 다시 보내도 결과가 같다)")
     @PutMapping
     public ClearanceSettingResponse update(
             @RequestHeader(STORE_ID_HEADER) Long storeId,

@@ -98,8 +98,8 @@ class ClearanceSettingApiTest {
         long storeId = 6302L;
         product("P6302", "설정테스트나");
 
-        save(storeId, "설정테스트나", true, 96, 6, 23).andExpect(status().isBadRequest());
-        save(storeId, "설정테스트나", true, 0, 6, 23).andExpect(status().isBadRequest());
+        save(storeId, "설정테스트나", true, 91, 6, 23).andExpect(status().isBadRequest());
+        save(storeId, "설정테스트나", true, 9, 6, 23).andExpect(status().isBadRequest());
         save(storeId, "설정테스트나", true, 30, 6, 25).andExpect(status().isBadRequest());
         save(storeId, "설정테스트나", true, 30, 12, 12)
                 .andExpect(status().isBadRequest())
@@ -117,20 +117,20 @@ class ClearanceSettingApiTest {
         long productId = product("P6303", "설정테스트다");
         handle(inbound(storeId, "P6303", 2, TONIGHT));
         handle(inbound(storeId, "P6303", 5, FRESH));
-        save(storeId, "설정테스트다", true, 95, 6, 23).andExpect(status().isOk());
+        save(storeId, "설정테스트다", true, 90, 6, 23).andExpect(status().isOk());
 
         mockMvc.perform(get("/stores/{storeId}/products/{productId}", storeId, productId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.clearanceQuantity").value(2))
-                .andExpect(jsonPath("$.clearancePrice").value(70))   // 1500원의 5% = 75 → 10원 내림 70
-                .andExpect(jsonPath("$.clearanceDiscountPercent").value(95));
+                .andExpect(jsonPath("$.clearancePrice").value(150))   // 1500원의 10%
+                .andExpect(jsonPath("$.clearanceDiscountPercent").value(90));
 
         handle(reserve(6303L, storeId, productId, 2, 1));
 
         ReservedMessage reserved = reserved(6303L);
         ReservedLot clearance = reserved.lots().getFirst();
         assertThat(clearance.clearance()).isTrue();
-        assertThat(clearance.unitPrice()).isEqualTo(70L);
+        assertThat(clearance.unitPrice()).isEqualTo(150L);
     }
 
     @Test
